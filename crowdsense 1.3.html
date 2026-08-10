@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CrowdSense — Smart Crowd Monitoring</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #1a1a1a; }
+
+  /* ── Topbar ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #fff; border-bottom: 1px solid #e5e5e5;
+    position: sticky; top: 0; z-index: 500;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: #111; }
+  .topbar-sub   { font-size: 12px; color: #888; }
+  .status-dot   { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; display: inline-block; }
+  #clockEl { font-size: 13px; color: #666; font-variant-numeric: tabular-nums; }
+
+  /* ── Search bar ── */
+  .search-wrap { position: relative; }
+  .search-input {
+    font-size: 13px; padding: 6px 12px 6px 34px; border-radius: 20px;
+    border: 1px solid #ddd; background: #f9f9f9; color: #111;
+    width: 240px; outline: none; transition: border .15s, width .2s;
+  }
+  .search-input:focus { border-color: #2563eb; background: #fff; width: 280px; }
+  .search-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 14px; color: #aaa; pointer-events: none;
+  }
+  .search-suggestions {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 600;
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10); overflow: hidden; display: none;
+  }
+  .search-suggestions.open { display: block; }
+  .sugg-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; cursor: pointer; transition: background .1s;
+    font-size: 13px; color: #222; border-bottom: 1px solid #f5f5f5;
+  }
+  .sugg-item:last-child { border-bottom: none; }
+  .sugg-item:hover, .sugg-item.highlighted { background: #f0f4ff; }
+  .sugg-icon { font-size: 16px; flex-shrink: 0; }
+  .sugg-name { font-weight: 500; }
+  .sugg-sub  { font-size: 11px; color: #888; margin-top: 1px; }
+  .sugg-no-result { padding: 10px 14px; font-size: 12px; color: #999; text-align: center; }
+
+  /* ── Graph peak banner ── */
+  .peak-banner {
+    display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+    background: #fef9c3; border: 1px solid #fde68a; border-radius: 8px;
+    font-size: 12px; color: #92400e; margin-bottom: 6px;
+  }
+  .peak-banner b { color: #78350f; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; background: #fff; border-bottom: 1px solid #e5e5e5;
+    padding: 0 20px; overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 18px; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: #888; border-bottom: 2px solid transparent; white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover  { color: #333; }
+  .tab.active { color: #111; border-bottom-color: #111; }
+
+  /* ── Layout ── */
+  .content { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; max-width: 1100px; margin: 0 auto; }
+  .hidden  { display: none !important; }
+
+  /* ── Metric cards ── */
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+  .mc { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px 14px; }
+  .ml { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+  .mv { font-size: 24px; font-weight: 600; color: #111; }
+  .ms { font-size: 11px; margin-top: 3px; }
+
+  /* ── Map ── */
+  .map-wrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid #e5e5e5; }
+
+  /* ── Compass ── */
+  .compass-wrap {
+    position: absolute; bottom: 18px; left: 14px; z-index: 1000;
+    pointer-events: none; user-select: none;
+  }
+  .compass-ring {
+    width: 66px; height: 66px; border-radius: 50%;
+    background: rgba(255,255,255,0.95); border: 1px solid rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .compass-ring .cn { position:absolute; top:4px;    left:50%; transform:translateX(-50%); font-size:10px; font-weight:700; color:#ef4444; }
+  .compass-ring .cs { position:absolute; bottom:4px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .ce { position:absolute; right:5px;  top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .cw { position:absolute; left:5px;   top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-needle { position:absolute; top:50%; left:50%; width:4px; height:38px; transform:translate(-50%,-50%); }
+  .needle-n { position:absolute; top:0;    left:0; width:4px; height:19px; background:#ef4444; border-radius:2px 2px 0 0; }
+  .needle-s { position:absolute; bottom:0; left:0; width:4px; height:19px; background:#aaa;    border-radius:0 0 2px 2px; }
+  .compass-dot { position:absolute; top:50%; left:50%; width:7px; height:7px; background:#222; border-radius:50%; transform:translate(-50%,-50%); z-index:2; }
+
+  /* ── Panels ── */
+  .panel { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:14px; }
+  .panel-title { font-size:13px; font-weight:600; color:#111; margin-bottom:10px; }
+
+  /* ── Alert items ── */
+  .alert-item { display:flex; align-items:flex-start; gap:9px; padding:7px 0; border-bottom:1px solid #f0f0f0; }
+  .alert-item:last-child { border-bottom:none; }
+  .badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; white-space:nowrap; margin-top:1px; }
+  .bd { background:#fee2e2; color:#dc2626; }
+  .bw { background:#fef3c7; color:#d97706; }
+  .bi { background:#dbeafe; color:#2563eb; }
+  .bs { background:#dcfce7; color:#16a34a; }
+  .at    { font-size:12px; color:#222; line-height:1.4; }
+  .atime { font-size:11px; color:#999; margin-top:2px; }
+
+  /* ── Route rows ── */
+  .route-row { display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid #f0f0f0; flex-wrap:wrap; }
+  .route-row:last-child { border-bottom:none; }
+  .route-name     { font-size:12px; font-weight:500; color:#111; min-width:140px; }
+  .route-dir      { font-size:11px; font-weight:500; padding:2px 8px; border-radius:12px; border:1px solid; white-space:nowrap; }
+  .route-bar-wrap { flex:1; min-width:60px; height:6px; background:#f0f0f0; border-radius:3px; overflow:hidden; }
+  .route-bar      { height:100%; border-radius:3px; transition:width .6s; }
+  .route-pct      { font-size:11px; min-width:30px; text-align:right; color:#888; }
+  .route-rec      { font-size:11px; font-weight:600; min-width:90px; text-align:right; }
+
+  /* ── Zone table ── */
+  .zt { width:100%; border-collapse:collapse; font-size:12px; }
+  .zt th { text-align:left; color:#888; font-weight:500; padding:5px 8px; border-bottom:1px solid #f0f0f0; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
+  .zt td { padding:6px 8px; border-bottom:1px solid #f0f0f0; color:#222; }
+  .zt tr:last-child td { border-bottom:none; }
+  .zt tr:hover td { background:#fafafa; }
+  .dp { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; }
+
+  /* ── Legend ── */
+  .legend { display:flex; gap:14px; flex-wrap:wrap; padding:8px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; }
+  .leg-item { display:flex; align-items:center; gap:5px; font-size:11px; color:#666; }
+  .leg-dot  { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+
+  /* ── Sim bar ── */
+  .sim-bar { display:flex; align-items:center; gap:10px; padding:9px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; font-size:12px; color:#666; }
+  .sim-bar input[type=range] { flex:1; accent-color:#111; }
+  .sim-bar button { font-size:11px; padding:4px 12px; border-radius:7px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#111; transition:background .15s; }
+  .sim-bar button:hover { background:#f5f5f5; }
+
+  /* ── Grid helpers ── */
+  .two-col   { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .three-col { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .route-legend-strip { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0; }
+  .rl-item { display:flex; align-items:center; gap:6px; font-size:11px; color:#666; }
+  .rl-line { width:26px; height:4px; border-radius:2px; }
+
+  /* ── Weather widget ── */
+  .weather-widget {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #38bdf8 100%);
+    border-radius: 12px; padding: 16px 18px; color: #fff; border: none;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .weather-widget .panel-title { color: rgba(255,255,255,0.75); margin-bottom: 4px; }
+  .weather-main { display:flex; align-items:center; justify-content:space-between; }
+  .weather-temp { font-size: 42px; font-weight: 700; letter-spacing: -1px; }
+  .weather-icon { font-size: 44px; line-height: 1; }
+  .weather-desc { font-size: 13px; opacity: .85; margin-top: 2px; }
+  .weather-location { font-size: 12px; opacity: .7; }
+  .weather-toggle { display:flex; gap:6px; margin-top:4px; }
+  .weather-toggle button {
+    font-size: 11px; padding: 2px 10px; border-radius: 20px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.15);
+    color: #fff; transition: background .15s;
+  }
+  .weather-toggle button.active { background: rgba(255,255,255,0.35); font-weight: 600; }
+  .weather-forecast { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; }
+  .wf-day {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    min-width: 44px; background: rgba(255,255,255,0.12); border-radius:8px;
+    padding: 6px 4px; font-size: 11px;
+  }
+  .wf-day .wf-name { opacity:.75; font-size:10px; }
+  .wf-day .wf-icon { font-size:16px; }
+  .wf-day .wf-hi   { font-weight:600; }
+  .wf-day .wf-lo   { opacity:.65; }
+  .weather-detail-row { display:flex; gap:14px; flex-wrap:wrap; margin-top:2px; }
+  .wd-item { display:flex; align-items:center; gap:4px; font-size:11px; opacity:.8; }
+
+  /* ── Visitor chart panel ── */
+  .chart-panel { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:14px; }
+
+  /* ── Learn tab ── */
+  .learn-hero {
+    background: linear-gradient(135deg,#1e3a5f,#2563eb);
+    border-radius:12px; padding:32px 28px; color:#fff; text-align:center;
+  }
+  .learn-hero h1 { font-size:26px; font-weight:700; margin-bottom:8px; }
+  .learn-hero p  { font-size:14px; opacity:.8; max-width:520px; margin:0 auto; }
+  .learn-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:14px; }
+  .learn-card {
+    background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:18px;
+    transition:box-shadow .2s;
+  }
+  .learn-card:hover { box-shadow:0 4px 20px rgba(0,0,0,0.08); }
+  .learn-card-icon { font-size:28px; margin-bottom:10px; }
+  .learn-card h3   { font-size:14px; font-weight:600; color:#111; margin-bottom:6px; }
+  .learn-card p    { font-size:12px; color:#666; line-height:1.6; }
+  .learn-arch {
+    background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:18px;
+  }
+  .learn-arch h3 { font-size:14px; font-weight:600; color:#111; margin-bottom:14px; }
+  .arch-layer {
+    display:flex; align-items:center; gap:12px; padding:10px 14px;
+    border-radius:8px; margin-bottom:8px;
+  }
+  .arch-layer:last-child { margin-bottom:0; }
+  .arch-num  { font-size:11px; font-weight:700; width:22px; height:22px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .arch-body h4  { font-size:12px; font-weight:600; }
+  .arch-body p   { font-size:11px; opacity:.75; margin-top:2px; }
+  .learn-tech { display:flex; flex-wrap:wrap; gap:8px; }
+  .tech-pill {
+    font-size:11px; font-weight:500; padding:4px 12px; border-radius:20px;
+    background:#f0f4ff; color:#2563eb; border:1px solid #c7d7fe;
+  }
+  .learn-refs li { font-size:12px; color:#444; margin-bottom:6px; line-height:1.5; }
+  .learn-refs li span { color:#2563eb; font-weight:500; }
+
+  @media (max-width:700px) {
+    .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .two-col   { grid-template-columns: 1fr; }
+    .three-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ TOPBAR ══ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="status-dot" id="liveDot"></span>
+    <span class="topbar-title">CrowdSense</span>
+    <span class="topbar-sub">Smart Crowd Monitoring System</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <span id="clockEl"></span>
+    <div class="search-wrap" id="searchWrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="searchInput" type="text"
+             placeholder="Search venue or location…"
+             autocomplete="off"
+             oninput="onSearchInput(this.value)"
+             onkeydown="onSearchKey(event)"
+             onfocus="showSuggestions()"
+             onblur="setTimeout(hideSuggestions,180)"/>
+      <div class="search-suggestions" id="searchSugg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TABS ══ -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
+  <div class="tab"        onclick="switchTab('learn',this)">Learn</div>
+  <div class="tab"        onclick="switchTab('routes',this)">Routes</div>
+  <div class="tab"        onclick="switchTab('alerts',this)">Alerts</div>
+  <div class="tab"        onclick="switchTab('zones',this)">Zones</div>
+</div>
+
+<!-- ══════════ TAB: OVERVIEW ══════════ -->
+<div class="content" id="tab-overview">
+
+  <!-- Metric cards -->
+  <div class="metrics">
+    <div class="mc"><div class="ml">Total visitors</div><div class="mv" id="m-total">0</div><div class="ms" style="color:#16a34a">live count</div></div>
+    <div class="mc"><div class="ml">Avg density</div><div class="mv" id="m-density">0</div><div class="ms" style="color:#888">people / m²</div></div>
+    <div class="mc"><div class="ml">Active alerts</div><div class="mv" id="m-alerts">0</div><div class="ms" style="color:#dc2626" id="m-alert-lbl"></div></div>
+    <div class="mc"><div class="ml">Risk level</div><div class="mv" id="m-risk">—</div><div class="ms" id="m-risk-sub"></div></div>
+  </div>
+
+  <!-- Map -->
+  <div class="map-wrap">
+    <div id="map" style="height:320px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+
+  <!-- Density legend -->
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low density</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#111"></div>Dangerous</div>
+  </div>
+
+  <!-- Weather + Visitor graph (side by side) -->
+  <div class="two-col">
+
+    <!-- Weather widget -->
+    <div class="weather-widget">
+      <div class="panel-title">☁ Weather — Bengaluru</div>
+      <div class="weather-main">
+        <div>
+          <div class="weather-temp"><span id="wTemp">32</span>°<span id="wUnit">C</span></div>
+          <div class="weather-desc" id="wDesc">Very warm with sunshine and a few clouds</div>
+          <div class="weather-location">Bengaluru, India · <span id="wHumidity">52%</span> humidity</div>
+          <div class="weather-toggle">
+            <button class="active" id="btnC" onclick="setUnit('C')">°C</button>
+            <button id="btnF" onclick="setUnit('F')">°F</button>
+          </div>
+        </div>
+        <div class="weather-icon" id="wIcon">🌤</div>
+      </div>
+      <div class="weather-detail-row">
+        <div class="wd-item">💨 <span id="wWind">14 km/h</span></div>
+        <div class="wd-item">💧 <span id="wRain">0%</span> rain</div>
+        <div class="wd-item">👁 <span id="wVis">10 km</span> visibility</div>
+        <div class="wd-item">🌡 Feels <span id="wFeels">34°</span></div>
+      </div>
+      <div class="weather-forecast" id="wForecast"></div>
+    </div>
+
+    <!-- Visitor trend chart -->
+    <div class="chart-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="panel-title" style="margin-bottom:0">Visitor Trend — Last 30 min</div>
+        <span id="graphRangeLabel" style="font-size:11px;color:#888"></span>
+      </div>
+      <div class="peak-banner hidden" id="peakBanner">
+        📈 <span id="peakText"></span>
+      </div>
+      <canvas id="visitorChart" height="170"></canvas>
+      <div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap">
+        <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low (&lt;2k)</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate (2k–5k)</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High (&gt;5k)</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Alerts + Route snapshot -->
+  <div class="two-col">
+    <div class="panel"><div class="panel-title">Recent alerts</div><div id="alertFeed"></div></div>
+    <div class="panel"><div class="panel-title">Route snapshot</div><div id="routeSnap"></div></div>
+  </div>
+
+  <!-- Sim controls -->
+  <div class="sim-bar">
+    <span>Simulation speed</span>
+    <input type="range" min="1" max="5" value="2" step="1" id="simSpeed"
+           oninput="state.speed=+this.value;document.getElementById('simSpeedLbl').textContent=this.value+'x'">
+    <span id="simSpeedLbl">2x</span>
+    <button id="simToggle" onclick="toggleSim()">Pause</button>
+  </div>
+
+</div>
+
+<!-- ══════════ TAB: LEARN ══════════ -->
+<div class="content hidden" id="tab-learn">
+
+  <div class="learn-hero">
+    <h1>🧠 About CrowdSense</h1>
+    <p>An intelligent crowd monitoring and route recommendation system designed to improve safety during large public gatherings in Bengaluru and beyond.</p>
+  </div>
+
+  <div class="learn-grid">
+    <div class="learn-card">
+      <div class="learn-card-icon">📡</div>
+      <h3>Real-Time Monitoring</h3>
+      <p>Crowd data is collected continuously from CCTV cameras, GPS signals, WiFi/Bluetooth device detection, and entry gate sensors to build a live picture of crowd density.</p>
+    </div>
+    <div class="learn-card">
+      <div class="learn-card-icon">🧮</div>
+      <h3>Density Analysis</h3>
+      <p>The system calculates people per m² for each zone in real time. Zones are classified as Low (&lt;1), Moderate (1–2), High (2–4), or Dangerous (&gt;4) persons per square metre.</p>
+    </div>
+    <div class="learn-card">
+      <div class="learn-card-icon">🗺</div>
+      <h3>Heatmap Visualisation</h3>
+      <p>Density levels are overlaid on a live map as colour-coded circles — green through red to black — giving operators an instant spatial view of crowd distribution.</p>
+    </div>
+    <div class="learn-card">
+      <div class="learn-card-icon">🧭</div>
+      <h3>Route Recommendation</h3>
+      <p>Like a navigation app for crowds, the system suggests the least-loaded paths with directional indicators (N/S/E/W compass) so visitors can move safely and quickly.</p>
+    </div>
+    <div class="learn-card">
+      <div class="learn-card-icon">⚠️</div>
+      <h3>Stampede Prediction</h3>
+      <p>ML algorithms analyse current density trends and historical patterns to forecast dangerous congestion before it occurs, triggering early warnings to staff and visitors.</p>
+    </div>
+    <div class="learn-card">
+      <div class="learn-card-icon">🔔</div>
+      <h3>Alert System</h3>
+      <p>Tiered alerts (Info → Warning → Danger) are pushed to security personnel, event organisers, and visitors with actionable instructions such as route diversions or evacuations.</p>
+    </div>
+  </div>
+
+  <!-- System architecture -->
+  <div class="learn-arch">
+    <h3>System Architecture</h3>
+    <div class="arch-layer" style="background:#f0fdf4">
+      <div class="arch-num" style="background:#22c55e;color:#fff">1</div>
+      <div class="arch-body">
+        <h4>Data Collection Layer</h4>
+        <p>CCTV cameras · GPS signals · WiFi/Bluetooth detection · Entry gate sensors</p>
+      </div>
+    </div>
+    <div class="arch-layer" style="background:#eff6ff">
+      <div class="arch-num" style="background:#2563eb;color:#fff">2</div>
+      <div class="arch-body">
+        <h4>Data Processing Layer</h4>
+        <p>Computer vision (OpenCV + YOLO) · ML density estimation (TensorFlow/PyTorch)</p>
+      </div>
+    </div>
+    <div class="arch-layer" style="background:#fef9c3">
+      <div class="arch-num" style="background:#d97706;color:#fff">3</div>
+      <div class="arch-body">
+        <h4>Application Layer</h4>
+        <p>Mobile app (React Native/Flutter) · Web dashboard (Node.js/FastAPI) · Map tiles</p>
+      </div>
+    </div>
+    <div class="arch-layer" style="background:#fef2f2">
+      <div class="arch-num" style="background:#dc2626;color:#fff">4</div>
+      <div class="arch-body">
+        <h4>Decision Layer</h4>
+        <p>Route recommendations · Real-time alerts · Predictive congestion warnings</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Tech stack -->
+  <div class="panel">
+    <div class="panel-title">Technology Stack</div>
+    <div class="learn-tech">
+      <span class="tech-pill">Python</span>
+      <span class="tech-pill">JavaScript</span>
+      <span class="tech-pill">OpenCV</span>
+      <span class="tech-pill">YOLO</span>
+      <span class="tech-pill">TensorFlow</span>
+      <span class="tech-pill">PyTorch</span>
+      <span class="tech-pill">React Native</span>
+      <span class="tech-pill">Flutter</span>
+      <span class="tech-pill">Node.js</span>
+      <span class="tech-pill">FastAPI</span>
+      <span class="tech-pill">PostgreSQL</span>
+      <span class="tech-pill">MongoDB</span>
+      <span class="tech-pill">Leaflet.js</span>
+      <span class="tech-pill">Chart.js</span>
+      <span class="tech-pill">OpenStreetMap</span>
+    </div>
+  </div>
+
+  <!-- References -->
+  <div class="panel">
+    <div class="panel-title">Research References</div>
+    <ul class="learn-refs" style="list-style:none;padding:0">
+      <li>📄 <span>Helbing, D. et al. (2000)</span> — Simulating dynamical features of escape panic. <em>Nature</em>, 407, 487–490.</li>
+      <li>📄 <span>Johansson, A. (2008)</span> — Constant-net-time headway as a key mechanism behind pedestrian flow dynamics. <em>Physical Review E</em>.</li>
+      <li>📄 <span>Wirz, M. et al. (2012)</span> — Inferring crowd conditions from pedestrians' location traces for real-time crowd monitoring. <em>IEEE WETICE</em>.</li>
+      <li>📄 <span>Zhang, C. et al. (2015)</span> — Cross-scene crowd counting via deep convolutional neural networks. <em>CVPR</em>.</li>
+      <li>📄 <span>Li, Y. et al. (2018)</span> — CSRNet: Dilated convolutional neural networks for understanding the highly congested scenes. <em>CVPR</em>.</li>
+    </ul>
+  </div>
+
+  <!-- Future enhancements -->
+  <div class="panel">
+    <div class="panel-title">Future Enhancements</div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:4px">
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">🚁 Drone monitoring integration</div>
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">📶 RFID-based crowd tracking</div>
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">🤖 AI crowd simulation models</div>
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">🏙 Smart city integration</div>
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">🔊 Voice emergency announcements</div>
+      <div style="font-size:12px;color:#555;padding:8px 12px;background:#f8fafc;border-radius:8px;border:1px solid #e2e8f0">🌐 Multi-venue command centre</div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════ TAB: ROUTES ══════════ -->
+<div class="content hidden" id="tab-routes">
+  <div class="map-wrap">
+    <div id="routeMapWrap" style="height:380px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Route directions &amp; load status</div>
+    <div id="routeStatusList"></div>
+    <div class="route-legend-strip">
+      <div class="rl-item"><div class="rl-line" style="background:#22c55e"></div>Clear — recommended</div>
+      <div class="rl-item"><div class="rl-line" style="background:#f59e0b"></div>Moderate — use with care</div>
+      <div class="rl-item"><div class="rl-line" style="background:#ef4444"></div>Congested — avoid</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: ALERTS ══════════ -->
+<div class="content hidden" id="tab-alerts">
+  <div class="panel" style="max-height:500px;overflow-y:auto">
+    <div class="panel-title">All alerts (latest first)</div>
+    <div id="allAlertFeed"></div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: ZONES ══════════ -->
+<div class="content hidden" id="tab-zones">
+  <div class="panel">
+    <div class="panel-title">Zone status — live</div>
+    <div style="overflow-x:auto">
+      <table class="zt">
+        <thead><tr><th>Zone</th><th>Count</th><th>Density (p/m²)</th><th>Capacity %</th><th>Status</th></tr></thead>
+        <tbody id="zoneTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ SCRIPTS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ─────────── SEARCH BAR ─────────── */
+const SEARCH_SUGGESTIONS = [
+  {idx:0, name:'Lalbagh Botanical Garden',      sub:'Park · Bengaluru South',       icon:'🌿'},
+  {idx:1, name:'M. Chinnaswamy Stadium',         sub:'Cricket Stadium · MG Road',    icon:'🏏'},
+  {idx:2, name:'Iskcon Temple',                  sub:'Temple · Rajajinagar',         icon:'🛕'},
+  {idx:3, name:'Kempegowda Intl. Airport',       sub:'Airport · Devanahalli',        icon:'✈️'},
+  {idx:0, name:'Cubbon Park',                    sub:'Park · Bengaluru Central',     icon:'🌳', alias:0},
+  {idx:1, name:'National Cricket Academy',        sub:'Stadium · Bengaluru',          icon:'🏟', alias:1},
+  {idx:2, name:'Hare Krishna Temple',            sub:'Temple · Bengaluru',           icon:'🛕', alias:2},
+  {idx:3, name:'BLR Airport',                    sub:'Airport · Bengaluru',          icon:'✈️', alias:3},
+  {idx:3, name:'KIA Terminal',                   sub:'Airport Terminal · Devanahalli',icon:'🛫',alias:3},
+];
+
+let suggHighlight = -1;
+
+function onSearchInput(val) {
+  suggHighlight = -1;
+  const q = val.trim().toLowerCase();
+  const box = document.getElementById('searchSugg');
+  if (!q) { renderSuggAll(); return; }
+  const matches = SEARCH_SUGGESTIONS.filter(s =>
+    s.name.toLowerCase().includes(q) || s.sub.toLowerCase().includes(q)
+  );
+  if (!matches.length) {
+    box.innerHTML = `<div class="sugg-no-result">No crowd data found for "<b>${val}</b>"</div>`;
+    box.classList.add('open');
+    return;
+  }
+  renderSuggList(matches);
+}
+
+function renderSuggAll() {
+  renderSuggList(SEARCH_SUGGESTIONS.slice(0,4));
+}
+
+function renderSuggList(list) {
+  const box = document.getElementById('searchSugg');
+  box.innerHTML = list.map((s,i) => `
+    <div class="sugg-item" data-idx="${s.idx}" onmousedown="selectSugg(${s.idx},'${s.name}')">
+      <span class="sugg-icon">${s.icon}</span>
+      <div><div class="sugg-name">${s.name}</div><div class="sugg-sub">${s.sub}</div></div>
+    </div>`).join('');
+  box.classList.add('open');
+}
+
+function onSearchKey(e) {
+  const items = document.querySelectorAll('.sugg-item');
+  if (e.key === 'ArrowDown') {
+    suggHighlight = Math.min(suggHighlight+1, items.length-1);
+  } else if (e.key === 'ArrowUp') {
+    suggHighlight = Math.max(suggHighlight-1, 0);
+  } else if (e.key === 'Enter') {
+    if (suggHighlight >= 0 && items[suggHighlight]) items[suggHighlight].dispatchEvent(new Event('mousedown'));
+    else if (items[0]) items[0].dispatchEvent(new Event('mousedown'));
+    return;
+  } else if (e.key === 'Escape') { hideSuggestions(); return; }
+  items.forEach((el,i) => el.classList.toggle('highlighted', i===suggHighlight));
+}
+
+function selectSugg(idx, name) {
+  document.getElementById('searchInput').value = name;
+  hideSuggestions();
+  switchVenue(idx);
+}
+
+function showSuggestions() { renderSuggAll(); }
+function hideSuggestions() {
+  document.getElementById('searchSugg').classList.remove('open');
+}
+
+/* ─────────── VENUE DATA ─────────── */
+const VENUES = [
+  {
+    name:'Lalbagh Botanical Garden', center:[12.9507,77.5848], zoom:16,
+    zones:[
+      {name:'Main gate',    lat:12.9476,lng:77.5844,r:60, cap:500 },
+      {name:'Flower house', lat:12.9510,lng:77.5862,r:80, cap:700 },
+      {name:'Glass house',  lat:12.9520,lng:77.5835,r:90, cap:900 },
+      {name:'Lake area',    lat:12.9540,lng:77.5870,r:120,cap:1500},
+      {name:'North gate',   lat:12.9565,lng:77.5840,r:55, cap:400 },
+      {name:'Rock garden',  lat:12.9498,lng:77.5820,r:70, cap:600 },
+    ],
+    routes:[
+      {name:'Main entrance path', coords:[[12.9476,77.5844],[12.9495,77.5845],[12.9510,77.5835],[12.9520,77.5835]],load:30},
+      {name:'Lake loop',          coords:[[12.9510,77.5862],[12.9530,77.5868],[12.9540,77.5870],[12.9555,77.5855]],load:55},
+      {name:'North exit route',   coords:[[12.9520,77.5835],[12.9540,77.5837],[12.9565,77.5840]],               load:20},
+      {name:'Rock garden bypass', coords:[[12.9476,77.5844],[12.9490,77.5825],[12.9498,77.5820],[12.9510,77.5835]],load:70},
+    ]
+  },
+  {
+    name:'M. Chinnaswamy Stadium', center:[12.9792,77.5993], zoom:17,
+    zones:[
+      {name:'Main entrance',lat:12.9782,lng:77.5993,r:50,cap:800 },
+      {name:'Stand A',      lat:12.9798,lng:77.6005,r:70,cap:2000},
+      {name:'Stand B',      lat:12.9800,lng:77.5980,r:70,cap:2000},
+      {name:'VIP block',    lat:12.9795,lng:77.5993,r:45,cap:500 },
+      {name:'Concourse',    lat:12.9785,lng:77.6000,r:60,cap:1000},
+      {name:'Exit gate',    lat:12.9778,lng:77.5985,r:40,cap:600 },
+    ],
+    routes:[
+      {name:'Main entry', coords:[[12.9778,77.5985],[12.9782,77.5993],[12.9785,77.6000]],load:60},
+      {name:'East stand', coords:[[12.9785,77.6000],[12.9792,77.6002],[12.9798,77.6005]],load:80},
+      {name:'West stand', coords:[[12.9785,77.6000],[12.9792,77.5990],[12.9800,77.5980]],load:45},
+      {name:'VIP access', coords:[[12.9782,77.5993],[12.9790,77.5993],[12.9795,77.5993]],load:25},
+    ]
+  },
+  {
+    name:'Iskcon Temple', center:[12.9989,77.6091], zoom:17,
+    zones:[
+      {name:'Main entrance',lat:12.9980,lng:77.6085,r:50,cap:400},
+      {name:'Temple hall',  lat:12.9993,lng:77.6093,r:80,cap:800},
+      {name:'Prasad area',  lat:12.9985,lng:77.6098,r:60,cap:500},
+      {name:'Queue zone',   lat:12.9975,lng:77.6090,r:55,cap:600},
+      {name:'North exit',   lat:13.0000,lng:77.6090,r:40,cap:300},
+      {name:'Meditation',   lat:12.9995,lng:77.6080,r:50,cap:350},
+    ],
+    routes:[
+      {name:'Entry queue', coords:[[12.9975,77.6090],[12.9980,77.6085],[12.9985,77.6088]],load:65},
+      {name:'Temple path', coords:[[12.9985,77.6088],[12.9990,77.6091],[12.9993,77.6093]],load:40},
+      {name:'Prasad loop', coords:[[12.9993,77.6093],[12.9990,77.6097],[12.9985,77.6098]],load:30},
+      {name:'Exit north',  coords:[[12.9993,77.6093],[12.9997,77.6091],[13.0000,77.6090]],load:20},
+    ]
+  },
+  /* ── NEW: Kempegowda International Airport ── */
+  {
+    name:'Kempegowda Intl. Airport', center:[13.1986,77.7066], zoom:16,
+    zones:[
+      {name:'Terminal Entrance',lat:13.1983,lng:77.7060,r:70, cap:1500},
+      {name:'Departure Hall',   lat:13.1990,lng:77.7068,r:90, cap:2500},
+      {name:'Security Check',   lat:13.1995,lng:77.7072,r:60, cap:1800},
+      {name:'Arrival Area',     lat:13.1978,lng:77.7055,r:80, cap:2000},
+      {name:'Taxi Pickup',      lat:13.1980,lng:77.7080,r:60, cap:1000},
+      {name:'Parking Zone',     lat:13.1975,lng:77.7075,r:100,cap:2200},
+    ],
+    routes:[
+      {name:'Terminal Entry Road',  coords:[[13.1975,77.7055],[13.1983,77.7060],[13.1990,77.7068]],load:40},
+      {name:'Departure Corridor',   coords:[[13.1990,77.7068],[13.1992,77.7069],[13.1995,77.7072]],load:65},
+      {name:'Arrival Exit',         coords:[[13.1995,77.7072],[13.1988,77.7076],[13.1980,77.7080]],load:35},
+      {name:'Parking Access',       coords:[[13.1980,77.7080],[13.1977,77.7077],[13.1975,77.7075]],load:50},
+    ]
+  }
+];
+
+const ALERT_TEMPLATES = [
+  {level:'danger',  msg:'Dangerous density detected — initiate crowd dispersal'},
+  {level:'warning', msg:'High crowd buildup — alert security personnel'},
+  {level:'warning', msg:'Zone approaching capacity limit'},
+  {level:'info',    msg:'Route congestion — redirecting visitors northward'},
+  {level:'info',    msg:'Density increasing — monitoring closely'},
+  {level:'success', msg:'Zone cleared — normal flow resumed'},
+];
+
+/* ─────────── WEATHER DATA (static, Bengaluru) ─────────── */
+const WEATHER = {
+  tempC: 32, feelsC: 34, humidity: 52, wind: 14,
+  rain: 0, vis: 10,
+  desc: 'Very warm with sunshine and a few clouds',
+  icon: '🌤',
+  forecast: [
+    {d:'Wed',ic:'🌤',hi:36,lo:23},{d:'Thu',ic:'🌤',hi:36,lo:23},
+    {d:'Fri',ic:'⛅',hi:36,lo:22},{d:'Sat',ic:'☀',hi:37,lo:22},
+    {d:'Sun',ic:'🌤',hi:36,lo:22},{d:'Mon',ic:'⛅',hi:36,lo:22},
+    {d:'Tue',ic:'🌥',hi:35,lo:21},
+  ]
+};
+let wUnit = 'C';
+
+function cToF(c){ return Math.round(c*9/5+32); }
+function dispTemp(c){ return wUnit==='C'?c:cToF(c); }
+
+function renderWeather() {
+  document.getElementById('wTemp').textContent    = dispTemp(WEATHER.tempC);
+  document.getElementById('wUnit').textContent    = wUnit;
+  document.getElementById('wDesc').textContent    = WEATHER.desc;
+  document.getElementById('wIcon').textContent    = WEATHER.icon;
+  document.getElementById('wHumidity').textContent= WEATHER.humidity+'%';
+  document.getElementById('wWind').textContent    = WEATHER.wind+' km/h';
+  document.getElementById('wRain').textContent    = WEATHER.rain+'%';
+  document.getElementById('wVis').textContent     = WEATHER.vis+' km';
+  document.getElementById('wFeels').textContent   = dispTemp(WEATHER.feelsC)+'°';
+  document.getElementById('wForecast').innerHTML  = WEATHER.forecast.map(f=>`
+    <div class="wf-day">
+      <div class="wf-name">${f.d}</div>
+      <div class="wf-icon">${f.ic}</div>
+      <div class="wf-hi">${dispTemp(f.hi)}°</div>
+      <div class="wf-lo">${dispTemp(f.lo)}°</div>
+    </div>`).join('');
+}
+
+function setUnit(u) {
+  wUnit = u;
+  document.getElementById('btnC').classList.toggle('active', u==='C');
+  document.getElementById('btnF').classList.toggle('active', u==='F');
+  renderWeather();
+}
+
+/* ─────────── VISITOR CHART (improved) ─────────── */
+let visitorChart;
+let visitorHistory = [];   // {time, val}
+let tickCount = 0;
+const MAX_GRAPH_POINTS = 30;
+
+function segmentColor(val) {
+  if (val > 5000) return '#ef4444';
+  if (val > 2000) return '#f59e0b';
+  return '#22c55e';
+}
+
+function initVisitorChart() {
+  const ctx = document.getElementById('visitorChart').getContext('2d');
+  visitorChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Visitors',
+      data: [],
+      borderColor: '#2563eb',
+      backgroundColor: 'rgba(37,99,235,0.07)',
+      fill: true, tension: 0.4,
+      pointRadius: 3, pointBackgroundColor: [], pointBorderColor: [],
+      borderWidth: 2, segment: {
+        borderColor: ctx2 => {
+          const v = ctx2.p1.parsed.y;
+          return segmentColor(v);
+        }
+      }
+    }]},
+    options: {
+      responsive: true,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => 'Time: ' + items[0].label,
+            label: ctx2 => ' Visitors: ' + ctx2.parsed.y.toLocaleString()
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Time', font:{size:11}, color:'#888' },
+          ticks: { font:{size:10}, color:'#888', maxRotation:45, minRotation:30 },
+          grid: { display: false }
+        },
+        y: {
+          title: { display: true, text: 'Visitors (count)', font:{size:11}, color:'#888' },
+          ticks: { font:{size:10}, color:'#888',
+            callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v },
+          grid: { color: '#f0f0f0' },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function updateVisitorChart(total) {
+  tickCount++;
+  const now = new Date();
+  const label = now.getHours().toString().padStart(2,'0') + ':' +
+                now.getMinutes().toString().padStart(2,'0') + ':' +
+                now.getSeconds().toString().padStart(2,'0');
+  visitorHistory.push({ time: label, val: total });
+  if (visitorHistory.length > MAX_GRAPH_POINTS) visitorHistory.shift();
+
+  if (!visitorChart) return;
+
+  const labels = visitorHistory.map(h => h.time);
+  const data   = visitorHistory.map(h => h.val);
+  const colors = data.map(v => segmentColor(v));
+
+  visitorChart.data.labels = labels;
+  visitorChart.data.datasets[0].data = data;
+  visitorChart.data.datasets[0].pointBackgroundColor = colors;
+  visitorChart.data.datasets[0].pointBorderColor = colors;
+  visitorChart.update('none');
+
+  // Peak banner
+  const peak = Math.max(...data);
+  const peakIdx = data.lastIndexOf(peak);
+  const peakTime = labels[peakIdx];
+  const banner = document.getElementById('peakBanner');
+  const peakText = document.getElementById('peakText');
+  if (data.length > 2) {
+    banner.classList.remove('hidden');
+    peakText.innerHTML = `Peak: <b>${peak.toLocaleString()} visitors</b> at ${peakTime}`;
+  }
+
+  // Range label
+  if (labels.length > 1) {
+    document.getElementById('graphRangeLabel').textContent =
+      labels[0] + ' – ' + labels[labels.length-1];
+  }
+}
+
+/* ─────────── STATE ─────────── */
+let state = {venueIdx:0, counts:[], routeLoads:[], alertLog:[], running:true, speed:2, tick:0};
+let maps   = {overview:null, routes:null};
+let layers = {overview:[], routes:[]};
+
+function initState(vIdx) {
+  const v = VENUES[vIdx];
+  state.counts     = v.zones.map(z  => Math.floor(z.cap  * 0.3));
+  state.routeLoads = v.routes.map(r => r.load + (Math.random()-0.5)*10);
+}
+
+/* ─────────── COLOUR HELPERS ─────────── */
+function densityColor(d) {
+  if (d>4) return '#111111';
+  if (d>2) return '#ef4444';
+  if (d>1) return '#f59e0b';
+  return '#22c55e';
+}
+function routeColor(l)  { return l>70?'#ef4444':l>45?'#f59e0b':'#22c55e'; }
+function routeWeight(l) { return l>70?7:l>45?5:4; }
+
+/* ─────────── COMPASS BEARING ─────────── */
+function compassBearing(coords) {
+  const s=coords[0], e=coords[coords.length-1];
+  const ang=Math.atan2(e[1]-s[1],e[0]-s[0])*180/Math.PI;
+  const dirs=[
+    {min:-22.5, max:22.5,  label:'North',      short:'N',  arrow:'↑',color:'#3b82f6'},
+    {min:22.5,  max:67.5,  label:'North-East',  short:'NE', arrow:'↗',color:'#8b5cf6'},
+    {min:67.5,  max:112.5, label:'East',        short:'E',  arrow:'→',color:'#f59e0b'},
+    {min:112.5, max:157.5, label:'South-East',  short:'SE', arrow:'↘',color:'#ec4899'},
+    {min:157.5, max:180,   label:'South',       short:'S',  arrow:'↓',color:'#ef4444'},
+    {min:-180,  max:-157.5,label:'South',       short:'S',  arrow:'↓',color:'#ef4444'},
+    {min:-157.5,max:-112.5,label:'South-West',  short:'SW', arrow:'↙',color:'#d97706'},
+    {min:-112.5,max:-67.5, label:'West',        short:'W',  arrow:'←',color:'#10b981'},
+    {min:-67.5, max:-22.5, label:'North-West',  short:'NW', arrow:'↖',color:'#6366f1'},
+  ];
+  return dirs.find(d=>ang>=d.min&&ang<d.max)||dirs[0];
+}
+
+/* ─────────── MAP DRAWING ─────────── */
+function clearLayers(key,m) {
+  (layers[key]||[]).forEach(l=>{try{m.removeLayer(l);}catch(e){}});
+  layers[key]=[];
+}
+
+function drawZones(m,key,vIdx) {
+  clearLayers(key,m);
+  const v=VENUES[vIdx];
+  v.zones.forEach((z,i)=>{
+    const cnt=state.counts[i]||0;
+    const area=Math.PI*z.r*z.r/10000;
+    const dens=cnt/area;
+    const col=densityColor(dens);
+    const circle=L.circle([z.lat,z.lng],{radius:z.r,color:col,fillColor:col,fillOpacity:0.45,weight:2}).addTo(m);
+    circle.bindTooltip(`<b>${z.name}</b><br>${cnt.toLocaleString()} people<br>Density: ${dens.toFixed(2)} p/m²`,{permanent:false,direction:'top'});
+    const icon=L.divIcon({
+      html:`<div style="font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);white-space:nowrap;text-align:center">${z.name}<br><span style="font-size:9px;opacity:.85">${cnt}</span></div>`,
+      className:'',iconAnchor:[32,22],iconSize:[64,22]
+    });
+    layers[key].push(circle,L.marker([z.lat,z.lng],{icon,interactive:false}).addTo(m));
+  });
+}
+
+function drawRoutes(m) {
+  clearLayers('routes',m);
+  const v=VENUES[state.venueIdx];
+  v.routes.forEach((r,i)=>{
+    const load=state.routeLoads[i]||r.load;
+    const col=routeColor(load), wt=routeWeight(load), bear=compassBearing(r.coords);
+    const line=L.polyline(r.coords,{color:col,weight:wt,opacity:0.92}).addTo(m);
+    layers.routes.push(line);
+    for (let j=0;j<r.coords.length-1;j++) {
+      const from=r.coords[j],to=r.coords[j+1];
+      const mLat=(from[0]+to[0])/2,mLng=(from[1]+to[1])/2;
+      const angle=Math.atan2(to[1]-from[1],to[0]-from[0])*180/Math.PI;
+      const aIcon=L.divIcon({html:`<div style="font-size:15px;color:${col};transform:rotate(${angle}deg);text-shadow:0 1px 3px rgba(0,0,0,.5);line-height:1">➤</div>`,className:'',iconAnchor:[8,8],iconSize:[16,16]});
+      layers.routes.push(L.marker([mLat,mLng],{icon:aIcon,interactive:false}).addTo(m));
+    }
+    const mid=r.coords[Math.floor(r.coords.length/2)];
+    const lIcon=L.divIcon({html:`<div style="background:${col};color:#fff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.3);display:flex;align-items:center;gap:4px"><span>${bear.arrow}</span><span>${r.name}</span><span style="opacity:.8">· ${Math.round(load)}%</span></div>`,className:'',iconAnchor:[55,10],iconSize:[110,20]});
+    layers.routes.push(L.marker(mid,{icon:lIcon,interactive:false}).addTo(m));
+    const endPt=r.coords[r.coords.length-1];
+    const eIcon=L.divIcon({html:`<div style="background:#fff;border:2px solid ${col};color:${col};font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)">${bear.short} end</div>`,className:'',iconAnchor:[22,8],iconSize:[44,16]});
+    layers.routes.push(L.marker(endPt,{icon:eIcon,interactive:false}).addTo(m));
+    const sIcon=L.divIcon({html:`<div style="width:10px;height:10px;background:${col};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>`,className:'',iconAnchor:[5,5],iconSize:[10,10]});
+    layers.routes.push(L.marker(r.coords[0],{icon:sIcon,interactive:false}).addTo(m));
+  });
+}
+
+function updateMaps() {
+  const vIdx=state.venueIdx;
+  if (maps.overview) drawZones(maps.overview,'overview',vIdx);
+  if (maps.routes)   {drawZones(maps.routes,'routes',vIdx);drawRoutes(maps.routes);}
+}
+
+function initMap(elId,vIdx,key) {
+  if (maps[key]){maps[key].remove();maps[key]=null;}
+  const v=VENUES[vIdx];
+  const m=L.map(elId,{zoomControl:true,attributionControl:true}).setView(v.center,v.zoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>'}).addTo(m);
+  maps[key]=m;
+  return m;
+}
+
+/* ─────────── UI RENDERS ─────────── */
+function updateMetrics() {
+  const v=VENUES[state.venueIdx];
+  const total=state.counts.reduce((a,b)=>a+b,0);
+  const totArea=v.zones.reduce((a,z)=>a+Math.PI*z.r*z.r/10000,0);
+  const avgDens=total/totArea;
+  document.getElementById('m-total').textContent   = total.toLocaleString();
+  document.getElementById('m-density').textContent = avgDens.toFixed(2);
+  const danger=v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>4);
+  const high  =v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>2);
+  document.getElementById('m-alerts').textContent    = state.alertLog.length;
+  document.getElementById('m-alert-lbl').textContent = danger.length?danger.length+' critical':'';
+  const rEl=document.getElementById('m-risk'),rSb=document.getElementById('m-risk-sub');
+  if (danger.length){rEl.textContent='Critical';rEl.style.color='#dc2626';rSb.textContent='Immediate action';rSb.style.color='#dc2626';}
+  else if (high.length){rEl.textContent='High';rEl.style.color='#d97706';rSb.textContent='Monitor closely';rSb.style.color='#d97706';}
+  else{rEl.textContent='Normal';rEl.style.color='#16a34a';rSb.textContent='All zones safe';rSb.style.color='#16a34a';}
+  updateVisitorChart(total);
+}
+
+function renderAlertFeed(elId,limit) {
+  const el=document.getElementById(elId);
+  if (!el) return;
+  const items=limit?state.alertLog.slice(-limit).reverse():[...state.alertLog].reverse();
+  el.innerHTML=items.map(a=>`<div class="alert-item"><span class="badge b${a.level[0]}">${a.level}</span><div><div class="at">${a.msg}</div><div class="atime">${a.time}</div></div></div>`).join('')
+    ||'<div style="font-size:12px;color:#999;padding:4px 0">No alerts yet.</div>';
+}
+
+function renderRouteSnap() {
+  const el=document.getElementById('routeSnap');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span style="font-size:12px;font-weight:500;color:#111;flex:1">${r.name}</span>
+      <span style="font-size:11px;padding:1px 6px;border-radius:10px;background:${bear.color}22;color:${bear.color};border:1px solid ${bear.color}55;font-weight:600">${bear.arrow} ${bear.short}</span>
+      <span style="font-size:11px;color:#888;min-width:30px;text-align:right">${load}%</span>
+    </div>`;
+  }).join('');
+}
+
+function renderRouteStatus() {
+  const el=document.getElementById('routeStatusList');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    const rec =load<50?'Recommended':load<70?'Use with care':'Avoid';
+    const recC=load<50?'#16a34a':load<70?'#d97706':'#dc2626';
+    return `<div class="route-row">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span class="route-name">${r.name}</span>
+      <span class="route-dir" style="color:${bear.color};border-color:${bear.color}55;background:${bear.color}11">${bear.arrow} ${bear.label}</span>
+      <div class="route-bar-wrap"><div class="route-bar" style="width:${load}%;background:${col}"></div></div>
+      <span class="route-pct">${load}%</span>
+      <span class="route-rec" style="color:${recC}">${rec}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderZoneTable() {
+  const el=document.getElementById('zoneTableBody');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.zones.map((z,i)=>{
+    const cnt=state.counts[i]||0,area=Math.PI*z.r*z.r/10000,dens=cnt/area;
+    const pct=Math.min(999,Math.round(cnt/z.cap*100));
+    let status,sc;
+    if(dens>4){status='Dangerous';sc='bd';}
+    else if(dens>2){status='High';sc='bw';}
+    else if(dens>1){status='Moderate';sc='bi';}
+    else{status='Normal';sc='bs';}
+    return `<tr>
+      <td><b>${z.name}</b></td><td>${cnt.toLocaleString()}</td><td>${dens.toFixed(2)}</td>
+      <td><div style="display:flex;align-items:center;gap:7px">
+        <div style="flex:1;height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden;max-width:80px">
+          <div style="width:${Math.min(100,pct)}%;height:100%;background:${densityColor(dens)};border-radius:3px"></div>
+        </div>${pct}%</div></td>
+      <td><span class="dp ${sc}">${status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─────────── TAB / VENUE SWITCHING ─────────── */
+const ALL_TABS = ['overview','learn','routes','alerts','zones'];
+
+function switchTab(name,el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ALL_TABS.forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));
+  const vIdx=state.venueIdx;
+  if (name==='routes'&&!maps.routes) {
+    setTimeout(()=>{
+      document.getElementById('routeMapWrap').innerHTML='<div id="route-map" style="height:380px"></div>';
+      initMap('route-map',vIdx,'routes');
+      drawZones(maps.routes,'routes',vIdx);
+      drawRoutes(maps.routes);
+    },60);
+  }
+  if (name==='routes') setTimeout(()=>maps.routes&&maps.routes.invalidateSize(),120);
+}
+
+function switchVenue(vIdx) {
+  state.venueIdx=parseInt(vIdx);
+  initState(state.venueIdx);
+  visitorHistory=[]; tickCount=0;
+  if (visitorChart){visitorChart.data.labels=[];visitorChart.data.datasets[0].data=[];visitorChart.data.datasets[0].pointBackgroundColor=[];visitorChart.update('none');document.getElementById('peakBanner').classList.add('hidden');}
+  const v=VENUES[state.venueIdx];
+  ['overview','routes'].forEach(k=>{if(maps[k]) maps[k].setView(v.center,v.zoom);});
+  if (maps.routes){maps.routes.remove();maps.routes=null;layers.routes=[];}
+  updateMaps();
+}
+
+/* ─────────── SIMULATION ─────────── */
+function toggleSim() {
+  state.running=!state.running;
+  document.getElementById('simToggle').textContent    =state.running?'Pause':'Resume';
+  document.getElementById('liveDot').style.background =state.running?'#22c55e':'#aaa';
+}
+
+function tick() {
+  state.tick++;
+  const v=VENUES[state.venueIdx];
+  v.zones.forEach((z,i)=>{
+    const delta=Math.floor((Math.random()-0.42)*28*state.speed);
+    state.counts[i]=Math.max(5,Math.min(Math.floor(z.cap*1.05),(state.counts[i]||0)+delta));
+  });
+  v.routes.forEach((r,i)=>{
+    state.routeLoads[i]=Math.max(5,Math.min(100,(state.routeLoads[i]||r.load)+(Math.random()-0.45)*7*state.speed));
+  });
+  if (state.tick%7===0) {
+    const t=ALERT_TEMPLATES[Math.floor(Math.random()*ALERT_TEMPLATES.length)];
+    state.alertLog.push({...t,time:new Date().toLocaleTimeString('en-IN')});
+    if (state.alertLog.length>80) state.alertLog.shift();
+  }
+  updateMetrics(); updateMaps();
+  renderAlertFeed('alertFeed',4); renderAlertFeed('allAlertFeed',0);
+  renderRouteSnap(); renderRouteStatus(); renderZoneTable();
+}
+
+function updateClock() {
+  const el=document.getElementById('clockEl');
+  if (el) el.textContent=new Date().toLocaleTimeString('en-IN');
+}
+
+function runLoop() {
+  if (state.running) tick();
+  updateClock();
+  setTimeout(runLoop,1200/Math.max(1,state.speed));
+}
+
+/* ─────────── BOOT ─────────── */
+initState(0);
+renderWeather();
+setTimeout(()=>{
+  initVisitorChart();
+  initMap('map',0,'overview');
+  drawZones(maps.overview,'overview',0);
+  runLoop();
+},300);
+</script>
+</body>
+</html>
