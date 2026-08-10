@@ -1,0 +1,634 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CrowdSense — Smart Crowd Monitoring</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f5f5; color: #111; }
+
+  /* ---------- Layout ---------- */
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ---------- Topbar ---------- */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 18px; background: #fff;
+    border-bottom: 1px solid #e5e5e5; position: sticky; top: 0; z-index: 900;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: #111; }
+  .topbar-sub   { font-size: 12px; color: #888; }
+  .status-dot   { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; display: inline-block; transition: background .3s; }
+  .topbar select {
+    font-size: 12px; padding: 4px 10px; border-radius: 8px;
+    border: 1px solid #ddd; background: #fff; color: #111; cursor: pointer;
+  }
+  #clockEl { font-size: 12px; color: #888; min-width: 70px; text-align: right; }
+
+  /* ---------- Tabs ---------- */
+  .tabs {
+    display: flex; background: #fff;
+    border-bottom: 1px solid #e5e5e5; overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 20px; font-size: 13px; cursor: pointer;
+    color: #888; border-bottom: 2px solid transparent;
+    white-space: nowrap; transition: all .15s;
+  }
+  .tab:hover { color: #333; }
+  .tab.active { color: #111; border-bottom: 2px solid #111; font-weight: 500; }
+
+  /* ---------- Content area ---------- */
+  .content { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+  .hidden  { display: none !important; }
+
+  /* ---------- Metric cards ---------- */
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  @media (max-width: 600px) { .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .mc { background: #f0f0f0; border-radius: 10px; padding: 12px 14px; }
+  .ml { font-size: 11px; color: #888; margin-bottom: 4px; }
+  .mv { font-size: 22px; font-weight: 600; color: #111; }
+  .ms { font-size: 11px; margin-top: 2px; }
+
+  /* ---------- Map ---------- */
+  .map-wrap { border: 1px solid #e5e5e5; border-radius: 12px; overflow: hidden; position: relative; }
+  #map  { height: 320px; width: 100%; }
+  #map2 { height: 400px; width: 100%; }
+  .map-legend {
+    position: absolute; bottom: 12px; left: 12px; z-index: 1000;
+    background: rgba(255,255,255,0.95); border: 1px solid #ddd;
+    border-radius: 8px; padding: 8px 11px; font-size: 11px; color: #666;
+  }
+  .leg-row { display: flex; align-items: center; gap: 7px; margin-bottom: 4px; }
+  .leg-row:last-child { margin-bottom: 0; }
+  .leg-swatch { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+  /* ---------- Bottom row ---------- */
+  .bottom-row { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); gap: 12px; }
+  @media (max-width: 600px) { .bottom-row { grid-template-columns: 1fr; } }
+
+  /* ---------- Panel ---------- */
+  .panel { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 14px; }
+  .panel-title { font-size: 13px; font-weight: 600; color: #111; margin-bottom: 10px; }
+
+  /* ---------- Alerts ---------- */
+  .alert-item { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; border-bottom: 1px solid #f0f0f0; }
+  .alert-item:last-child { border-bottom: none; }
+  .abadge { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 20px; white-space: nowrap; margin-top: 1px; }
+  .bd { background: #fde8e8; color: #c0392b; }
+  .bw { background: #fef3cd; color: #b7770d; }
+  .bi { background: #e8f0fe; color: #1a56db; }
+  .bs { background: #e6f4ea; color: #1e7e34; }
+  .at   { font-size: 12px; color: #222; line-height: 1.4; }
+  .atime{ font-size: 11px; color: #aaa; margin-top: 2px; }
+
+  /* ---------- Route bars ---------- */
+  .ritem { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid #f0f0f0; }
+  .ritem:last-child { border-bottom: none; }
+  .rname { font-size: 12px; font-weight: 500; color: #222; min-width: 80px; }
+  .rbar-wrap { flex: 1; height: 6px; background: #f0f0f0; border-radius: 3px; overflow: hidden; }
+  .rbar { height: 100%; border-radius: 3px; transition: width .5s; }
+  .rpct { font-size: 11px; color: #888; min-width: 32px; text-align: right; }
+
+  /* ---------- Zone table ---------- */
+  .ztable { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ztable th { text-align: left; color: #888; font-weight: 500; padding: 6px 8px; border-bottom: 1px solid #eee; }
+  .ztable td { padding: 7px 8px; border-bottom: 1px solid #f5f5f5; color: #222; }
+  .ztable tr:last-child td { border-bottom: none; }
+  .dpill { font-size: 11px; font-weight: 500; padding: 2px 8px; border-radius: 20px; }
+
+  /* ---------- Sim bar ---------- */
+  .sim-bar {
+    display: flex; align-items: center; gap: 12px;
+    padding: 9px 14px; background: #f0f0f0;
+    border-radius: 10px; font-size: 12px; color: #888;
+  }
+  .sim-bar input[type=range] { flex: 1; cursor: pointer; }
+  .sim-btn {
+    font-size: 12px; padding: 4px 14px; border-radius: 8px;
+    border: 1px solid #ccc; background: #fff; cursor: pointer; color: #333;
+  }
+  .sim-btn:hover { background: #f5f5f5; }
+</style>
+</head>
+<body>
+
+<div class="app">
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div class="topbar-left">
+      <span class="status-dot" id="liveDot"></span>
+      <span class="topbar-title">CrowdSense</span>
+      <span class="topbar-sub">Smart Crowd Monitoring</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:14px">
+      <span id="clockEl"></span>
+      <select id="venueSelect" onchange="switchVenue(this.value)">
+        <option value="0">Lalbagh Botanical Garden</option>
+        <option value="1">M. Chinnaswamy Stadium</option>
+        <option value="2">ISKCON Temple</option>
+        <option value="3">UB City Mall</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Tabs -->
+  <div class="tabs">
+    <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
+    <div class="tab" onclick="switchTab('heatmap',this)">Heatmap</div>
+    <div class="tab" onclick="switchTab('alerts',this)">Alerts</div>
+    <div class="tab" onclick="switchTab('routes',this)">Routes</div>
+    <div class="tab" onclick="switchTab('zones',this)">Zones</div>
+  </div>
+
+  <!-- ===== OVERVIEW ===== -->
+  <div class="content" id="tab-overview">
+    <div class="metrics">
+      <div class="mc">
+        <div class="ml">Total visitors</div>
+        <div class="mv" id="m-total">—</div>
+        <div class="ms" style="color:#22c55e" id="m-trend"></div>
+      </div>
+      <div class="mc">
+        <div class="ml">Avg density</div>
+        <div class="mv" id="m-dens">—</div>
+        <div class="ms" style="color:#888">people / m²</div>
+      </div>
+      <div class="mc">
+        <div class="ml">Active alerts</div>
+        <div class="mv" id="m-alerts">0</div>
+        <div class="ms" style="color:#c0392b" id="m-alert-sub"></div>
+      </div>
+      <div class="mc">
+        <div class="ml">Risk level</div>
+        <div class="mv" id="m-risk">—</div>
+        <div class="ms" id="m-risk-sub"></div>
+      </div>
+    </div>
+
+    <div class="map-wrap">
+      <div id="map"></div>
+      <div class="map-legend">
+        <div class="leg-row"><div class="leg-swatch" style="background:#22c55e"></div>Low (&lt;1 p/m²)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#f59e0b"></div>Moderate (1–2)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#ef4444"></div>High (2–4)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#111"></div>Dangerous (&gt;4)</div>
+      </div>
+    </div>
+
+    <div class="bottom-row">
+      <div class="panel">
+        <div class="panel-title">Recent alerts</div>
+        <div id="alertFeed"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Route load</div>
+        <div id="routeFeed"></div>
+      </div>
+    </div>
+
+    <div class="sim-bar">
+      <span>Simulation speed</span>
+      <input type="range" min="1" max="5" value="2" step="1" id="simSpeed" oninput="simSpeedChange(this.value)">
+      <span id="simSpeedLabel">2x</span>
+      <button class="sim-btn" id="simToggle" onclick="toggleSim()">Pause</button>
+    </div>
+  </div>
+
+  <!-- ===== HEATMAP ===== -->
+  <div class="content hidden" id="tab-heatmap">
+    <div class="map-wrap">
+      <div id="map2"></div>
+      <div class="map-legend">
+        <div class="leg-row"><div class="leg-swatch" style="background:#22c55e"></div>Low (&lt;1 p/m²)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#f59e0b"></div>Moderate (1–2)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#ef4444"></div>High (2–4)</div>
+        <div class="leg-row"><div class="leg-swatch" style="background:#111"></div>Dangerous (&gt;4)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ALERTS ===== -->
+  <div class="content hidden" id="tab-alerts">
+    <div class="panel" style="max-height:500px;overflow-y:auto">
+      <div class="panel-title">All alerts</div>
+      <div id="allAlertFeed"></div>
+    </div>
+  </div>
+
+  <!-- ===== ROUTES ===== -->
+  <div class="content hidden" id="tab-routes">
+    <div class="panel">
+      <div class="panel-title">Route recommendations</div>
+      <div id="routeDetail"></div>
+    </div>
+  </div>
+
+  <!-- ===== ZONES ===== -->
+  <div class="content hidden" id="tab-zones">
+    <div class="panel">
+      <div class="panel-title">Zone status</div>
+      <table class="ztable">
+        <thead>
+          <tr>
+            <th>Zone</th>
+            <th>Count</th>
+            <th>Density (p/m²)</th>
+            <th>Capacity %</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody id="zoneBody"></tbody>
+      </table>
+    </div>
+  </div>
+
+</div><!-- .app -->
+
+<script>
+/* ============================================================
+   DATA — Venues & Zones (GPS-accurate, Bengaluru)
+   ============================================================ */
+const VENUES = [
+  {
+    name: 'Lalbagh Botanical Garden',
+    lat: 12.9507, lng: 77.5848, zoom: 16,
+    zones: [
+      { name: 'Main gate',    lat: 12.9480, lng: 77.5841, r: 40,  cap: 500  },
+      { name: 'Rose garden',  lat: 12.9510, lng: 77.5830, r: 55,  cap: 800  },
+      { name: 'Glass house',  lat: 12.9518, lng: 77.5865, r: 50,  cap: 600  },
+      { name: 'Lake area',    lat: 12.9505, lng: 77.5880, r: 70,  cap: 1200 },
+      { name: 'East gate',    lat: 12.9495, lng: 77.5900, r: 35,  cap: 400  },
+      { name: 'Bandstand',    lat: 12.9530, lng: 77.5850, r: 45,  cap: 700  },
+    ]
+  },
+  {
+    name: 'M. Chinnaswamy Stadium',
+    lat: 12.9794, lng: 77.5996, zoom: 17,
+    zones: [
+      { name: 'Main entrance', lat: 12.9784, lng: 77.5990, r: 40, cap: 1000 },
+      { name: 'North stand',   lat: 12.9803, lng: 77.5992, r: 60, cap: 3000 },
+      { name: 'South stand',   lat: 12.9785, lng: 77.5998, r: 60, cap: 3000 },
+      { name: 'East stand',    lat: 12.9794, lng: 77.6010, r: 55, cap: 2500 },
+      { name: 'West stand',    lat: 12.9794, lng: 77.5980, r: 55, cap: 2500 },
+      { name: 'Pitch centre',  lat: 12.9794, lng: 77.5996, r: 35, cap: 500  },
+    ]
+  },
+  {
+    name: 'ISKCON Temple',
+    lat: 12.9716, lng: 77.5597, zoom: 17,
+    zones: [
+      { name: 'Main gate',    lat: 12.9710, lng: 77.5592, r: 35, cap: 400 },
+      { name: 'Temple hall',  lat: 12.9718, lng: 77.5597, r: 50, cap: 800 },
+      { name: 'Prasad hall',  lat: 12.9714, lng: 77.5607, r: 45, cap: 600 },
+      { name: 'Garden',       lat: 12.9722, lng: 77.5590, r: 55, cap: 500 },
+      { name: 'Parking',      lat: 12.9706, lng: 77.5600, r: 40, cap: 300 },
+    ]
+  },
+  {
+    name: 'UB City Mall',
+    lat: 12.9716, lng: 77.5946, zoom: 17,
+    zones: [
+      { name: 'Ground floor', lat: 12.9712, lng: 77.5944, r: 50, cap: 1000 },
+      { name: 'Food court',   lat: 12.9718, lng: 77.5950, r: 45, cap: 700  },
+      { name: 'Parking B1',   lat: 12.9708, lng: 77.5942, r: 45, cap: 500  },
+      { name: 'Upper floors', lat: 12.9720, lng: 77.5944, r: 50, cap: 800  },
+      { name: 'Main entrance',lat: 12.9714, lng: 77.5938, r: 35, cap: 400  },
+    ]
+  },
+];
+
+const ALERT_TEMPLATES = [
+  { level: 'danger',  msg: 'Dangerous density detected — initiate crowd dispersal' },
+  { level: 'warning', msg: 'Zone approaching critical threshold' },
+  { level: 'warning', msg: 'Entry gate congestion building' },
+  { level: 'info',    msg: 'Route congestion — divert visitors' },
+  { level: 'info',    msg: 'Density increasing — monitor closely' },
+  { level: 'success', msg: 'Zone cleared — normal flow resumed' },
+];
+
+const ROUTES = [
+  { name: 'Route A' },
+  { name: 'Route B' },
+  { name: 'Route C' },
+  { name: 'Route D' },
+];
+
+/* ============================================================
+   STATE
+   ============================================================ */
+let venueIdx   = 0;
+let counts     = [];
+let routeLoads = [30, 45, 20, 60];
+let alertLog   = [];
+let running    = true;
+let speed      = 2;
+let tick       = 0;
+
+let map1, map2;
+let heatLayer1, heatLayer2;
+let circles1 = [], circles2 = [];
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
+function currentVenue() { return VENUES[venueIdx]; }
+
+function zoneArea(r) { return Math.PI * r * r; }
+
+function densityColor(d) {
+  if (d > 4) return '#111111';
+  if (d > 2) return '#ef4444';
+  if (d > 1) return '#f59e0b';
+  return '#22c55e';
+}
+
+function timestamp() {
+  const n = new Date();
+  return [n.getHours(), n.getMinutes(), n.getSeconds()]
+    .map(x => String(x).padStart(2, '0')).join(':');
+}
+
+/* ============================================================
+   MAP
+   ============================================================ */
+function heatPoints() {
+  const v = currentVenue();
+  const pts = [];
+  v.zones.forEach((z, i) => {
+    const cnt  = counts[i] || 0;
+    const dens = cnt / zoneArea(z.r);
+    const intensity = Math.min(1, dens / 4);
+    const n = Math.min(50, Math.ceil(cnt / 20));
+    for (let p = 0; p < n; p++) {
+      pts.push([
+        z.lat + (Math.random() - 0.5) * 0.0007,
+        z.lng + (Math.random() - 0.5) * 0.0009,
+        intensity,
+      ]);
+    }
+  });
+  return pts;
+}
+
+function initMap(elId, which) {
+  const v = currentVenue();
+  const m = L.map(elId, { zoomControl: true, scrollWheelZoom: false })
+             .setView([v.lat, v.lng], v.zoom);
+
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    maxZoom: 19,
+  }).addTo(m);
+
+  const hl = L.heatLayer(heatPoints(), {
+    radius: 35, blur: 25, maxZoom: 18,
+    gradient: { 0: '#22c55e', 0.4: '#f59e0b', 0.7: '#ef4444', 1: '#111111' },
+  }).addTo(m);
+
+  if (which === 1) { map1 = m; heatLayer1 = hl; }
+  else             { map2 = m; heatLayer2 = hl; }
+
+  addCircles(m, which === 1 ? circles1 : circles2);
+}
+
+function addCircles(m, arr) {
+  arr.forEach(c => m.removeLayer(c));
+  arr.length = 0;
+  currentVenue().zones.forEach((z, i) => {
+    const cnt  = counts[i] || 0;
+    const dens = cnt / zoneArea(z.r);
+    const col  = densityColor(dens);
+    const c = L.circle([z.lat, z.lng], {
+      radius: z.r,
+      color: col, fillColor: col, fillOpacity: 0.35, weight: 1.5,
+    })
+    .bindTooltip(
+      `<b>${z.name}</b><br>${cnt.toLocaleString()} people<br>${dens.toFixed(2)} p/m²`,
+      { sticky: true }
+    )
+    .addTo(m);
+    arr.push(c);
+  });
+}
+
+function refreshMaps() {
+  const pts = heatPoints();
+  if (heatLayer1) heatLayer1.setLatLngs(pts);
+  if (heatLayer2) heatLayer2.setLatLngs(pts);
+  if (map1) addCircles(map1, circles1);
+  if (map2) addCircles(map2, circles2);
+}
+
+/* ============================================================
+   VENUE SWITCH
+   ============================================================ */
+function switchVenue(idx) {
+  venueIdx = +idx;
+  const v = currentVenue();
+  counts = v.zones.map(z => Math.floor(z.cap * 0.25));
+  if (map1) { map1.setView([v.lat, v.lng], v.zoom); }
+  if (map2) { map2.setView([v.lat, v.lng], v.zoom); }
+  refreshMaps();
+  renderAll();
+}
+
+/* ============================================================
+   SIMULATION TICK
+   ============================================================ */
+function simTick() {
+  tick++;
+  const v = currentVenue();
+
+  v.zones.forEach((z, i) => {
+    const delta = Math.floor((Math.random() - 0.42) * 25 * speed);
+    counts[i] = Math.max(5, Math.min(Math.floor(z.cap * 1.1), counts[i] + delta));
+  });
+
+  routeLoads = routeLoads.map(l =>
+    Math.max(5, Math.min(100, l + (Math.random() - 0.45) * 7 * speed))
+  );
+
+  if (tick % 7 === 0) {
+    const tmpl = ALERT_TEMPLATES[Math.floor(Math.random() * ALERT_TEMPLATES.length)];
+    const zone = v.zones[Math.floor(Math.random() * v.zones.length)];
+    alertLog.push({ level: tmpl.level, msg: tmpl.msg + ' (' + zone.name + ')', time: timestamp() });
+    if (alertLog.length > 60) alertLog.shift();
+  }
+
+  refreshMaps();
+  renderAll();
+}
+
+/* ============================================================
+   RENDER FUNCTIONS
+   ============================================================ */
+function renderAll() {
+  updateMetrics();
+  renderAlerts('alertFeed', 4);
+  renderAlerts('allAlertFeed', 0);
+  renderRoutes('routeFeed', false);
+  renderRoutes('routeDetail', true);
+  renderZoneTable();
+}
+
+function updateMetrics() {
+  const v     = currentVenue();
+  const total = counts.reduce((a, b) => a + b, 0);
+  const totalArea = v.zones.reduce((a, z) => a + zoneArea(z.r), 0);
+  const avgD  = total / totalArea;
+
+  document.getElementById('m-total').textContent = total.toLocaleString();
+  document.getElementById('m-trend').textContent = '+' + (Math.floor(Math.random() * 15) + 5) + ' last min';
+  document.getElementById('m-dens').textContent  = avgD.toFixed(2);
+  document.getElementById('m-alerts').textContent = alertLog.length;
+
+  const dangerN = v.zones.filter((z, i) => counts[i] / zoneArea(z.r) > 4).length;
+  const highN   = v.zones.filter((z, i) => counts[i] / zoneArea(z.r) > 2).length;
+
+  document.getElementById('m-alert-sub').textContent = dangerN ? dangerN + ' critical' : '';
+
+  const rEl  = document.getElementById('m-risk');
+  const rSub = document.getElementById('m-risk-sub');
+  if (dangerN) {
+    rEl.textContent = 'Critical'; rEl.style.color = '#c0392b';
+    rSub.textContent = 'Immediate action'; rSub.style.color = '#c0392b';
+  } else if (highN) {
+    rEl.textContent = 'High'; rEl.style.color = '#b7770d';
+    rSub.textContent = 'Monitor closely'; rSub.style.color = '#b7770d';
+  } else {
+    rEl.textContent = 'Normal'; rEl.style.color = '#1e7e34';
+    rSub.textContent = 'All zones safe'; rSub.style.color = '#1e7e34';
+  }
+}
+
+function renderAlerts(elId, limit) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const items = limit ? alertLog.slice(-limit).reverse() : [...alertLog].reverse();
+  const cls   = { danger: 'bd', warning: 'bw', info: 'bi', success: 'bs' };
+  el.innerHTML = items.length
+    ? items.map(a => `
+        <div class="alert-item">
+          <span class="abadge ${cls[a.level] || 'bi'}">${a.level}</span>
+          <div>
+            <div class="at">${a.msg}</div>
+            <div class="atime">${a.time}</div>
+          </div>
+        </div>`).join('')
+    : '<div style="font-size:12px;color:#aaa;padding:6px 0">No alerts yet</div>';
+}
+
+function renderRoutes(elId, detail) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const labels = ['Recommended', 'Use with care', 'Avoid'];
+  const lColors = ['#1e7e34', '#b7770d', '#c0392b'];
+  el.innerHTML = ROUTES.map((r, i) => {
+    const load = Math.round(routeLoads[i]);
+    const col  = load > 80 ? '#ef4444' : load > 50 ? '#f59e0b' : '#22c55e';
+    const li   = load > 80 ? 2 : load > 50 ? 1 : 0;
+    return `<div class="ritem">
+      <span class="rname">${r.name}</span>
+      <div class="rbar-wrap"><div class="rbar" style="width:${load}%;background:${col}"></div></div>
+      <span class="rpct">${load}%</span>
+      ${detail ? `<span style="font-size:11px;font-weight:600;min-width:100px;text-align:right;color:${lColors[li]}">${labels[li]}</span>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderZoneTable() {
+  const el = document.getElementById('zoneBody');
+  if (!el) return;
+  el.innerHTML = currentVenue().zones.map((z, i) => {
+    const cnt  = counts[i] || 0;
+    const dens = cnt / zoneArea(z.r);
+    const pct  = Math.round(cnt / z.cap * 100);
+    let status, sc;
+    if      (dens > 4) { status = 'Dangerous'; sc = 'bd'; }
+    else if (dens > 2) { status = 'High';      sc = 'bw'; }
+    else if (dens > 1) { status = 'Moderate';  sc = 'bi'; }
+    else               { status = 'Normal';    sc = 'bs'; }
+    return `<tr>
+      <td>${z.name}</td>
+      <td>${cnt.toLocaleString()}</td>
+      <td>${dens.toFixed(2)}</td>
+      <td>${pct}%</td>
+      <td><span class="dpill ${sc}">${status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ============================================================
+   TAB SWITCHING
+   ============================================================ */
+function switchTab(name, el) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  el.classList.add('active');
+  ['overview', 'heatmap', 'alerts', 'routes', 'zones'].forEach(t => {
+    document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+  });
+  if (name === 'heatmap') {
+    if (!map2) {
+      setTimeout(() => initMap('map2', 2), 80);
+    } else {
+      setTimeout(() => map2.invalidateSize(), 80);
+    }
+  }
+  if (name === 'overview' && map1) {
+    setTimeout(() => map1.invalidateSize(), 80);
+  }
+}
+
+/* ============================================================
+   SIM CONTROLS
+   ============================================================ */
+function toggleSim() {
+  running = !running;
+  document.getElementById('simToggle').textContent = running ? 'Pause' : 'Resume';
+  document.getElementById('liveDot').style.background = running ? '#22c55e' : '#888';
+}
+
+function simSpeedChange(v) {
+  speed = +v;
+  document.getElementById('simSpeedLabel').textContent = v + 'x';
+}
+
+/* ============================================================
+   CLOCK
+   ============================================================ */
+function updateClock() {
+  const el = document.getElementById('clockEl');
+  if (el) el.textContent = new Date().toLocaleTimeString('en-IN');
+}
+
+/* ============================================================
+   MAIN LOOP
+   ============================================================ */
+function loop() {
+  if (running) simTick();
+  updateClock();
+  setTimeout(loop, Math.round(1200 / speed));
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+const v0 = currentVenue();
+counts     = v0.zones.map(z => Math.floor(z.cap * 0.25));
+routeLoads = [30, 45, 20, 60];
+
+window.addEventListener('DOMContentLoaded', () => {
+  initMap('map', 1);
+  renderAll();
+  loop();
+});
+</script>
+</body>
+</html>
