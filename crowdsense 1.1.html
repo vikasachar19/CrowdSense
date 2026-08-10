@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CrowdSense — Smart Crowd Monitoring</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #1a1a1a; }
+
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #fff; border-bottom: 1px solid #e5e5e5;
+    position: sticky; top: 0; z-index: 500;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: #111; }
+  .topbar-sub   { font-size: 12px; color: #888; }
+  .status-dot   { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; display: inline-block; }
+  .topbar select {
+    font-size: 13px; padding: 4px 10px; border-radius: 8px;
+    border: 1px solid #ddd; background: #fff; color: #111; cursor: pointer;
+  }
+  #clockEl { font-size: 13px; color: #666; font-variant-numeric: tabular-nums; }
+
+  .tabs {
+    display: flex; background: #fff; border-bottom: 1px solid #e5e5e5;
+    padding: 0 20px; overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 18px; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: #888; border-bottom: 2px solid transparent; white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover  { color: #333; }
+  .tab.active { color: #111; border-bottom-color: #111; }
+
+  .content { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; max-width: 1100px; margin: 0 auto; }
+  .hidden  { display: none !important; }
+
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+  .mc { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px 14px; }
+  .ml { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+  .mv { font-size: 24px; font-weight: 600; color: #111; }
+  .ms { font-size: 11px; margin-top: 3px; }
+
+  .map-wrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid #e5e5e5; }
+
+  .compass-wrap {
+    position: absolute; bottom: 18px; left: 14px; z-index: 1000;
+    pointer-events: none; user-select: none;
+  }
+  .compass-ring {
+    width: 66px; height: 66px; border-radius: 50%;
+    background: rgba(255,255,255,0.95); border: 1px solid rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .compass-ring .cn { position:absolute; top:4px;    left:50%; transform:translateX(-50%); font-size:10px; font-weight:700; color:#ef4444; }
+  .compass-ring .cs { position:absolute; bottom:4px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .ce { position:absolute; right:5px;  top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .cw { position:absolute; left:5px;   top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-needle { position:absolute; top:50%; left:50%; width:4px; height:38px; transform:translate(-50%,-50%); }
+  .needle-n { position:absolute; top:0;    left:0; width:4px; height:19px; background:#ef4444; border-radius:2px 2px 0 0; }
+  .needle-s { position:absolute; bottom:0; left:0; width:4px; height:19px; background:#aaa;    border-radius:0 0 2px 2px; }
+  .compass-dot { position:absolute; top:50%; left:50%; width:7px; height:7px; background:#222; border-radius:50%; transform:translate(-50%,-50%); z-index:2; }
+
+  .panel { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:14px; }
+  .panel-title { font-size:13px; font-weight:600; color:#111; margin-bottom:10px; }
+
+  .alert-item { display:flex; align-items:flex-start; gap:9px; padding:7px 0; border-bottom:1px solid #f0f0f0; }
+  .alert-item:last-child { border-bottom:none; }
+  .badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; white-space:nowrap; margin-top:1px; }
+  .bd { background:#fee2e2; color:#dc2626; }
+  .bw { background:#fef3c7; color:#d97706; }
+  .bi { background:#dbeafe; color:#2563eb; }
+  .bs { background:#dcfce7; color:#16a34a; }
+  .at    { font-size:12px; color:#222; line-height:1.4; }
+  .atime { font-size:11px; color:#999; margin-top:2px; }
+
+  .route-row { display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid #f0f0f0; flex-wrap:wrap; }
+  .route-row:last-child { border-bottom:none; }
+  .route-name  { font-size:12px; font-weight:500; color:#111; min-width:140px; }
+  .route-dir   { font-size:11px; font-weight:500; padding:2px 8px; border-radius:12px; border:1px solid; white-space:nowrap; }
+  .route-bar-wrap { flex:1; min-width:60px; height:6px; background:#f0f0f0; border-radius:3px; overflow:hidden; }
+  .route-bar   { height:100%; border-radius:3px; transition:width .6s; }
+  .route-pct   { font-size:11px; min-width:30px; text-align:right; color:#888; }
+  .route-rec   { font-size:11px; font-weight:600; min-width:90px; text-align:right; }
+
+  .zt { width:100%; border-collapse:collapse; font-size:12px; }
+  .zt th { text-align:left; color:#888; font-weight:500; padding:5px 8px; border-bottom:1px solid #f0f0f0; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
+  .zt td { padding:6px 8px; border-bottom:1px solid #f0f0f0; color:#222; }
+  .zt tr:last-child td { border-bottom:none; }
+  .zt tr:hover td { background:#fafafa; }
+  .dp { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; }
+
+  .legend { display:flex; gap:14px; flex-wrap:wrap; padding:8px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; }
+  .leg-item { display:flex; align-items:center; gap:5px; font-size:11px; color:#666; }
+  .leg-dot  { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+
+  .sim-bar { display:flex; align-items:center; gap:10px; padding:9px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; font-size:12px; color:#666; }
+  .sim-bar input[type=range] { flex:1; accent-color:#111; }
+  .sim-bar button { font-size:11px; padding:4px 12px; border-radius:7px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#111; transition:background .15s; }
+  .sim-bar button:hover { background:#f5f5f5; }
+
+  .two-col { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .route-legend-strip { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0; }
+  .rl-item { display:flex; align-items:center; gap:6px; font-size:11px; color:#666; }
+  .rl-line { width:26px; height:4px; border-radius:2px; }
+
+  @media (max-width:600px) {
+    .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .two-col  { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="status-dot" id="liveDot"></span>
+    <span class="topbar-title">CrowdSense</span>
+    <span class="topbar-sub">Smart Crowd Monitoring System</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <span id="clockEl"></span>
+    <select id="venueSelect" onchange="switchVenue(this.value)">
+      <option value="0">Lalbagh Botanical Garden</option>
+      <option value="1">M. Chinnaswamy Stadium</option>
+      <option value="2">Iskcon Temple</option>
+    </select>
+  </div>
+</div>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
+  <div class="tab"        onclick="switchTab('heatmap',this)">Heatmap</div>
+  <div class="tab"        onclick="switchTab('routes',this)">Routes</div>
+  <div class="tab"        onclick="switchTab('alerts',this)">Alerts</div>
+  <div class="tab"        onclick="switchTab('zones',this)">Zones</div>
+</div>
+
+<!-- TAB: OVERVIEW -->
+<div class="content" id="tab-overview">
+  <div class="metrics">
+    <div class="mc"><div class="ml">Total visitors</div><div class="mv" id="m-total">0</div><div class="ms" style="color:#16a34a">live count</div></div>
+    <div class="mc"><div class="ml">Avg density</div><div class="mv" id="m-density">0</div><div class="ms" style="color:#888">people / m²</div></div>
+    <div class="mc"><div class="ml">Active alerts</div><div class="mv" id="m-alerts">0</div><div class="ms" style="color:#dc2626" id="m-alert-lbl"></div></div>
+    <div class="mc"><div class="ml">Risk level</div><div class="mv" id="m-risk">—</div><div class="ms" id="m-risk-sub"></div></div>
+  </div>
+  <div class="map-wrap">
+    <div id="map" style="height:320px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low density</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#111"></div>Dangerous</div>
+  </div>
+  <div class="two-col">
+    <div class="panel"><div class="panel-title">Recent alerts</div><div id="alertFeed"></div></div>
+    <div class="panel"><div class="panel-title">Route snapshot</div><div id="routeSnap"></div></div>
+  </div>
+  <div class="sim-bar">
+    <span>Simulation speed</span>
+    <input type="range" min="1" max="5" value="2" step="1" id="simSpeed"
+           oninput="state.speed=+this.value;document.getElementById('simSpeedLbl').textContent=this.value+'x'">
+    <span id="simSpeedLbl">2x</span>
+    <button id="simToggle" onclick="toggleSim()">Pause</button>
+  </div>
+</div>
+
+<!-- TAB: HEATMAP -->
+<div class="content hidden" id="tab-heatmap">
+  <div class="map-wrap">
+    <div id="heatmap-map" style="height:420px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low (&lt;1 p/m²)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate (1–2 p/m²)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High (2–4 p/m²)</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#111"></div>Dangerous (&gt;4 p/m²)</div>
+  </div>
+</div>
+
+<!-- TAB: ROUTES -->
+<div class="content hidden" id="tab-routes">
+  <div class="map-wrap">
+    <div id="routeMapWrap" style="height:380px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Route directions &amp; load status</div>
+    <div id="routeStatusList"></div>
+    <div class="route-legend-strip">
+      <div class="rl-item"><div class="rl-line" style="background:#22c55e"></div>Clear — recommended</div>
+      <div class="rl-item"><div class="rl-line" style="background:#f59e0b"></div>Moderate — use with care</div>
+      <div class="rl-item"><div class="rl-line" style="background:#ef4444"></div>Congested — avoid</div>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: ALERTS -->
+<div class="content hidden" id="tab-alerts">
+  <div class="panel" style="max-height:500px;overflow-y:auto">
+    <div class="panel-title">All alerts (latest first)</div>
+    <div id="allAlertFeed"></div>
+  </div>
+</div>
+
+<!-- TAB: ZONES -->
+<div class="content hidden" id="tab-zones">
+  <div class="panel">
+    <div class="panel-title">Zone status — live</div>
+    <div style="overflow-x:auto">
+      <table class="zt">
+        <thead><tr><th>Zone</th><th>Count</th><th>Density (p/m²)</th><th>Capacity %</th><th>Status</th></tr></thead>
+        <tbody id="zoneTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ── VENUE DATA ── */
+const VENUES = [
+  {
+    name: 'Lalbagh Botanical Garden', center: [12.9507,77.5848], zoom: 16,
+    zones: [
+      { name:'Main gate',    lat:12.9476, lng:77.5844, r:60,  cap:500  },
+      { name:'Flower house', lat:12.9510, lng:77.5862, r:80,  cap:700  },
+      { name:'Glass house',  lat:12.9520, lng:77.5835, r:90,  cap:900  },
+      { name:'Lake area',    lat:12.9540, lng:77.5870, r:120, cap:1500 },
+      { name:'North gate',   lat:12.9565, lng:77.5840, r:55,  cap:400  },
+      { name:'Rock garden',  lat:12.9498, lng:77.5820, r:70,  cap:600  },
+    ],
+    routes: [
+      { name:'Main entrance path', coords:[[12.9476,77.5844],[12.9495,77.5845],[12.9510,77.5835],[12.9520,77.5835]], load:30 },
+      { name:'Lake loop',          coords:[[12.9510,77.5862],[12.9530,77.5868],[12.9540,77.5870],[12.9555,77.5855]], load:55 },
+      { name:'North exit route',   coords:[[12.9520,77.5835],[12.9540,77.5837],[12.9565,77.5840]],                  load:20 },
+      { name:'Rock garden bypass', coords:[[12.9476,77.5844],[12.9490,77.5825],[12.9498,77.5820],[12.9510,77.5835]],load:70 },
+    ]
+  },
+  {
+    name: 'M. Chinnaswamy Stadium', center: [12.9792,77.5993], zoom: 17,
+    zones: [
+      { name:'Main entrance', lat:12.9782, lng:77.5993, r:50, cap:800  },
+      { name:'Stand A',       lat:12.9798, lng:77.6005, r:70, cap:2000 },
+      { name:'Stand B',       lat:12.9800, lng:77.5980, r:70, cap:2000 },
+      { name:'VIP block',     lat:12.9795, lng:77.5993, r:45, cap:500  },
+      { name:'Concourse',     lat:12.9785, lng:77.6000, r:60, cap:1000 },
+      { name:'Exit gate',     lat:12.9778, lng:77.5985, r:40, cap:600  },
+    ],
+    routes: [
+      { name:'Main entry', coords:[[12.9778,77.5985],[12.9782,77.5993],[12.9785,77.6000]], load:60 },
+      { name:'East stand', coords:[[12.9785,77.6000],[12.9792,77.6002],[12.9798,77.6005]], load:80 },
+      { name:'West stand', coords:[[12.9785,77.6000],[12.9792,77.5990],[12.9800,77.5980]], load:45 },
+      { name:'VIP access', coords:[[12.9782,77.5993],[12.9790,77.5993],[12.9795,77.5993]], load:25 },
+    ]
+  },
+  {
+    name: 'Iskcon Temple', center: [12.9989,77.6091], zoom: 17,
+    zones: [
+      { name:'Main entrance', lat:12.9980, lng:77.6085, r:50, cap:400 },
+      { name:'Temple hall',   lat:12.9993, lng:77.6093, r:80, cap:800 },
+      { name:'Prasad area',   lat:12.9985, lng:77.6098, r:60, cap:500 },
+      { name:'Queue zone',    lat:12.9975, lng:77.6090, r:55, cap:600 },
+      { name:'North exit',    lat:13.0000, lng:77.6090, r:40, cap:300 },
+      { name:'Meditation',    lat:12.9995, lng:77.6080, r:50, cap:350 },
+    ],
+    routes: [
+      { name:'Entry queue', coords:[[12.9975,77.6090],[12.9980,77.6085],[12.9985,77.6088]], load:65 },
+      { name:'Temple path', coords:[[12.9985,77.6088],[12.9990,77.6091],[12.9993,77.6093]], load:40 },
+      { name:'Prasad loop', coords:[[12.9993,77.6093],[12.9990,77.6097],[12.9985,77.6098]], load:30 },
+      { name:'Exit north',  coords:[[12.9993,77.6093],[12.9997,77.6091],[13.0000,77.6090]], load:20 },
+    ]
+  }
+];
+
+const ALERT_TEMPLATES = [
+  { level:'danger',  msg:'Dangerous density detected — initiate crowd dispersal' },
+  { level:'warning', msg:'High crowd buildup — alert security personnel' },
+  { level:'warning', msg:'Zone approaching capacity limit' },
+  { level:'info',    msg:'Route congestion — redirecting visitors northward' },
+  { level:'info',    msg:'Density increasing — monitoring closely' },
+  { level:'success', msg:'Zone cleared — normal flow resumed' },
+];
+
+/* ── STATE ── */
+let state = { venueIdx:0, counts:[], routeLoads:[], alertLog:[], running:true, speed:2, tick:0 };
+let maps   = { overview:null, heatmap:null, routes:null };
+let layers = { overview:[], heatmap:[], routes:[] };
+
+function initState(vIdx) {
+  const v = VENUES[vIdx];
+  state.counts     = v.zones.map(z  => Math.floor(z.cap  * 0.3));
+  state.routeLoads = v.routes.map(r => r.load + (Math.random()-0.5)*10);
+}
+
+/* ── COLOUR HELPERS ── */
+function densityColor(d) {
+  if (d > 4) return '#111111';
+  if (d > 2) return '#ef4444';
+  if (d > 1) return '#f59e0b';
+  return '#22c55e';
+}
+function routeColor(l)  { return l>70?'#ef4444':l>45?'#f59e0b':'#22c55e'; }
+function routeWeight(l) { return l>70?7:l>45?5:4; }
+
+/* ── COMPASS BEARING ── */
+function compassBearing(coords) {
+  const s = coords[0], e = coords[coords.length-1];
+  const ang = Math.atan2(e[1]-s[1], e[0]-s[0]) * 180 / Math.PI;
+  const dirs = [
+    { min:-22.5,  max:22.5,   label:'North',      short:'N',  arrow:'↑', color:'#3b82f6' },
+    { min:22.5,   max:67.5,   label:'North-East',  short:'NE', arrow:'↗', color:'#8b5cf6' },
+    { min:67.5,   max:112.5,  label:'East',        short:'E',  arrow:'→', color:'#f59e0b' },
+    { min:112.5,  max:157.5,  label:'South-East',  short:'SE', arrow:'↘', color:'#ec4899' },
+    { min:157.5,  max:180,    label:'South',       short:'S',  arrow:'↓', color:'#ef4444' },
+    { min:-180,   max:-157.5, label:'South',       short:'S',  arrow:'↓', color:'#ef4444' },
+    { min:-157.5, max:-112.5, label:'South-West',  short:'SW', arrow:'↙', color:'#d97706' },
+    { min:-112.5, max:-67.5,  label:'West',        short:'W',  arrow:'←', color:'#10b981' },
+    { min:-67.5,  max:-22.5,  label:'North-West',  short:'NW', arrow:'↖', color:'#6366f1' },
+  ];
+  return dirs.find(d => ang >= d.min && ang < d.max) || dirs[0];
+}
+
+/* ── MAP DRAW ── */
+function clearLayers(key, m) {
+  (layers[key]||[]).forEach(l => { try{m.removeLayer(l);}catch(e){} });
+  layers[key] = [];
+}
+
+function drawZones(m, key, vIdx) {
+  clearLayers(key, m);
+  const v = VENUES[vIdx];
+  v.zones.forEach((z,i) => {
+    const cnt  = state.counts[i]||0;
+    const area = Math.PI*z.r*z.r/10000;
+    const dens = cnt/area;
+    const col  = densityColor(dens);
+    const circle = L.circle([z.lat,z.lng],{radius:z.r,color:col,fillColor:col,fillOpacity:0.45,weight:2}).addTo(m);
+    circle.bindTooltip(`<b>${z.name}</b><br>${cnt.toLocaleString()} people<br>Density: ${dens.toFixed(2)} p/m²`,{permanent:false,direction:'top'});
+    const icon = L.divIcon({
+      html:`<div style="font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);white-space:nowrap;text-align:center">${z.name}<br><span style="font-size:9px;opacity:.85">${cnt}</span></div>`,
+      className:'',iconAnchor:[32,22],iconSize:[64,22]
+    });
+    const mk = L.marker([z.lat,z.lng],{icon,interactive:false}).addTo(m);
+    layers[key].push(circle,mk);
+  });
+}
+
+function drawRoutes(m) {
+  clearLayers('routes',m);
+  const v = VENUES[state.venueIdx];
+  v.routes.forEach((r,i) => {
+    const load = state.routeLoads[i]||r.load;
+    const col  = routeColor(load);
+    const wt   = routeWeight(load);
+    const bear = compassBearing(r.coords);
+
+    const line = L.polyline(r.coords,{color:col,weight:wt,opacity:0.92}).addTo(m);
+    layers.routes.push(line);
+
+    for (let j=0;j<r.coords.length-1;j++) {
+      const from=r.coords[j],to=r.coords[j+1];
+      const mLat=(from[0]+to[0])/2, mLng=(from[1]+to[1])/2;
+      const angle=Math.atan2(to[1]-from[1],to[0]-from[0])*180/Math.PI;
+      const aIcon=L.divIcon({
+        html:`<div style="font-size:15px;color:${col};transform:rotate(${angle}deg);text-shadow:0 1px 3px rgba(0,0,0,.5);line-height:1">➤</div>`,
+        className:'',iconAnchor:[8,8],iconSize:[16,16]
+      });
+      layers.routes.push(L.marker([mLat,mLng],{icon:aIcon,interactive:false}).addTo(m));
+    }
+
+    const mid=r.coords[Math.floor(r.coords.length/2)];
+    const lIcon=L.divIcon({
+      html:`<div style="background:${col};color:#fff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.3);display:flex;align-items:center;gap:4px"><span>${bear.arrow}</span><span>${r.name}</span><span style="opacity:.8">· ${Math.round(load)}%</span></div>`,
+      className:'',iconAnchor:[55,10],iconSize:[110,20]
+    });
+    layers.routes.push(L.marker(mid,{icon:lIcon,interactive:false}).addTo(m));
+
+    const endPt=r.coords[r.coords.length-1];
+    const eIcon=L.divIcon({
+      html:`<div style="background:#fff;border:2px solid ${col};color:${col};font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)">${bear.short} end</div>`,
+      className:'',iconAnchor:[22,8],iconSize:[44,16]
+    });
+    layers.routes.push(L.marker(endPt,{icon:eIcon,interactive:false}).addTo(m));
+
+    const startPt=r.coords[0];
+    const sIcon=L.divIcon({
+      html:`<div style="width:10px;height:10px;background:${col};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>`,
+      className:'',iconAnchor:[5,5],iconSize:[10,10]
+    });
+    layers.routes.push(L.marker(startPt,{icon:sIcon,interactive:false}).addTo(m));
+  });
+}
+
+function updateMaps() {
+  const vIdx=state.venueIdx;
+  if (maps.overview) drawZones(maps.overview,'overview',vIdx);
+  if (maps.heatmap)  drawZones(maps.heatmap,'heatmap',vIdx);
+  if (maps.routes)   { drawZones(maps.routes,'routes',vIdx); drawRoutes(maps.routes); }
+}
+
+function initMap(elId,vIdx,key) {
+  if (maps[key]) { maps[key].remove(); maps[key]=null; }
+  const v=VENUES[vIdx];
+  const m=L.map(elId,{zoomControl:true,attributionControl:true}).setView(v.center,v.zoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{
+    maxZoom:19,attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>'
+  }).addTo(m);
+  maps[key]=m;
+  return m;
+}
+
+/* ── UI UPDATES ── */
+function updateMetrics() {
+  const v=VENUES[state.venueIdx];
+  const total=state.counts.reduce((a,b)=>a+b,0);
+  const totArea=v.zones.reduce((a,z)=>a+Math.PI*z.r*z.r/10000,0);
+  const avgDens=total/totArea;
+  document.getElementById('m-total').textContent=total.toLocaleString();
+  document.getElementById('m-density').textContent=avgDens.toFixed(2);
+  const danger=v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>4);
+  const high  =v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>2);
+  document.getElementById('m-alerts').textContent=state.alertLog.length;
+  document.getElementById('m-alert-lbl').textContent=danger.length?danger.length+' critical':'';
+  const rEl=document.getElementById('m-risk'),rSb=document.getElementById('m-risk-sub');
+  if (danger.length){ rEl.textContent='Critical';rEl.style.color='#dc2626';rSb.textContent='Immediate action';rSb.style.color='#dc2626'; }
+  else if (high.length){ rEl.textContent='High';rEl.style.color='#d97706';rSb.textContent='Monitor closely';rSb.style.color='#d97706'; }
+  else { rEl.textContent='Normal';rEl.style.color='#16a34a';rSb.textContent='All zones safe';rSb.style.color='#16a34a'; }
+}
+
+function renderAlertFeed(elId,limit) {
+  const el=document.getElementById(elId);
+  if (!el) return;
+  const items=limit?state.alertLog.slice(-limit).reverse():[...state.alertLog].reverse();
+  el.innerHTML=items.map(a=>`<div class="alert-item"><span class="badge b${a.level[0]}">${a.level}</span><div><div class="at">${a.msg}</div><div class="atime">${a.time}</div></div></div>`).join('')
+    ||'<div style="font-size:12px;color:#999;padding:4px 0">No alerts yet.</div>';
+}
+
+function renderRouteSnap() {
+  const el=document.getElementById('routeSnap');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span style="font-size:12px;font-weight:500;color:#111;flex:1">${r.name}</span>
+      <span style="font-size:11px;padding:1px 6px;border-radius:10px;background:${bear.color}22;color:${bear.color};border:1px solid ${bear.color}55;font-weight:600">${bear.arrow} ${bear.short}</span>
+      <span style="font-size:11px;color:#888;min-width:30px;text-align:right">${load}%</span>
+    </div>`;
+  }).join('');
+}
+
+function renderRouteStatus() {
+  const el=document.getElementById('routeStatusList');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    const rec =load<50?'Recommended':load<70?'Use with care':'Avoid';
+    const recC=load<50?'#16a34a':load<70?'#d97706':'#dc2626';
+    return `<div class="route-row">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span class="route-name">${r.name}</span>
+      <span class="route-dir" style="color:${bear.color};border-color:${bear.color}55;background:${bear.color}11">${bear.arrow} ${bear.label}</span>
+      <div class="route-bar-wrap"><div class="route-bar" style="width:${load}%;background:${col}"></div></div>
+      <span class="route-pct">${load}%</span>
+      <span class="route-rec" style="color:${recC}">${rec}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderZoneTable() {
+  const el=document.getElementById('zoneTableBody');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.zones.map((z,i)=>{
+    const cnt=state.counts[i]||0,area=Math.PI*z.r*z.r/10000,dens=cnt/area;
+    const pct=Math.min(999,Math.round(cnt/z.cap*100));
+    let status,sc;
+    if (dens>4){status='Dangerous';sc='bd';}
+    else if(dens>2){status='High';sc='bw';}
+    else if(dens>1){status='Moderate';sc='bi';}
+    else{status='Normal';sc='bs';}
+    return `<tr>
+      <td><b>${z.name}</b></td><td>${cnt.toLocaleString()}</td><td>${dens.toFixed(2)}</td>
+      <td><div style="display:flex;align-items:center;gap:7px">
+        <div style="flex:1;height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden;max-width:80px">
+          <div style="width:${Math.min(100,pct)}%;height:100%;background:${densityColor(dens)};border-radius:3px"></div>
+        </div>${pct}%</div></td>
+      <td><span class="dp ${sc}">${status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── TAB / VENUE SWITCH ── */
+function switchTab(name,el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ['overview','heatmap','routes','alerts','zones'].forEach(t=>
+    document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));
+  const vIdx=state.venueIdx,v=VENUES[vIdx];
+  if (name==='heatmap'&&!maps.heatmap) {
+    setTimeout(()=>{ initMap('heatmap-map',vIdx,'heatmap'); drawZones(maps.heatmap,'heatmap',vIdx); },60);
+  }
+  if (name==='routes'&&!maps.routes) {
+    setTimeout(()=>{
+      document.getElementById('routeMapWrap').innerHTML='<div id="route-map" style="height:380px"></div>';
+      initMap('route-map',vIdx,'routes');
+      drawZones(maps.routes,'routes',vIdx);
+      drawRoutes(maps.routes);
+    },60);
+  }
+  if (name==='heatmap') setTimeout(()=>maps.heatmap&&maps.heatmap.invalidateSize(),120);
+  if (name==='routes')  setTimeout(()=>maps.routes &&maps.routes.invalidateSize(), 120);
+}
+
+function switchVenue(vIdx) {
+  state.venueIdx=parseInt(vIdx); initState(state.venueIdx);
+  const v=VENUES[state.venueIdx];
+  ['overview','heatmap','routes'].forEach(k=>{ if(maps[k]) maps[k].setView(v.center,v.zoom); });
+  updateMaps();
+}
+
+/* ── SIMULATION ── */
+function toggleSim() {
+  state.running=!state.running;
+  document.getElementById('simToggle').textContent=state.running?'Pause':'Resume';
+  document.getElementById('liveDot').style.background=state.running?'#22c55e':'#aaa';
+}
+
+function tick() {
+  state.tick++;
+  const v=VENUES[state.venueIdx];
+  v.zones.forEach((z,i)=>{
+    const delta=Math.floor((Math.random()-0.42)*28*state.speed);
+    state.counts[i]=Math.max(5,Math.min(Math.floor(z.cap*1.05),(state.counts[i]||0)+delta));
+  });
+  v.routes.forEach((r,i)=>{
+    state.routeLoads[i]=Math.max(5,Math.min(100,(state.routeLoads[i]||r.load)+(Math.random()-0.45)*7*state.speed));
+  });
+  if (state.tick%7===0) {
+    const t=ALERT_TEMPLATES[Math.floor(Math.random()*ALERT_TEMPLATES.length)];
+    state.alertLog.push({...t,time:new Date().toLocaleTimeString('en-IN')});
+    if (state.alertLog.length>80) state.alertLog.shift();
+  }
+  updateMetrics(); updateMaps();
+  renderAlertFeed('alertFeed',4); renderAlertFeed('allAlertFeed',0);
+  renderRouteSnap(); renderRouteStatus(); renderZoneTable();
+}
+
+function updateClock() {
+  const el=document.getElementById('clockEl');
+  if (el) el.textContent=new Date().toLocaleTimeString('en-IN');
+}
+
+function runLoop() {
+  if (state.running) tick();
+  updateClock();
+  setTimeout(runLoop,1200/Math.max(1,state.speed));
+}
+
+/* ── BOOT ── */
+initState(0);
+setTimeout(()=>{ initMap('map',0,'overview'); drawZones(maps.overview,'overview',0); runLoop(); },300);
+</script>
+</body>
+</html>
