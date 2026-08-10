@@ -1,0 +1,1847 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>CrowdSense — Smart Crowd Monitoring</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, -apple-system, sans-serif; background: #f5f5f5; color: #1a1a1a; }
+
+  /* ── Topbar ── */
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 20px; background: #fff; border-bottom: 1px solid #e5e5e5;
+    position: sticky; top: 0; z-index: 500;
+  }
+  .topbar-left { display: flex; align-items: center; gap: 10px; }
+  .topbar-title { font-size: 16px; font-weight: 600; color: #111; }
+  .topbar-sub   { font-size: 12px; color: #888; }
+  .status-dot   { width: 9px; height: 9px; border-radius: 50%; background: #22c55e; display: inline-block; }
+  #clockEl { font-size: 13px; color: #666; font-variant-numeric: tabular-nums; }
+
+  /* ── Search bar ── */
+  .search-wrap { position: relative; }
+  .search-input {
+    font-size: 13px; padding: 6px 12px 6px 34px; border-radius: 20px;
+    border: 1px solid #ddd; background: #f9f9f9; color: #111;
+    width: 240px; outline: none; transition: border .15s, width .2s;
+  }
+  .search-input:focus { border-color: #2563eb; background: #fff; width: 280px; }
+  .search-icon {
+    position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 14px; color: #aaa; pointer-events: none;
+  }
+  .search-suggestions {
+    position: absolute; top: calc(100% + 6px); left: 0; right: 0; z-index: 600;
+    background: #fff; border: 1px solid #e0e0e0; border-radius: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10); overflow: hidden; display: none;
+  }
+  .search-suggestions.open { display: block; }
+  .sugg-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 14px; cursor: pointer; transition: background .1s;
+    font-size: 13px; color: #222; border-bottom: 1px solid #f5f5f5;
+  }
+  .sugg-item:last-child { border-bottom: none; }
+  .sugg-item:hover, .sugg-item.highlighted { background: #f0f4ff; }
+  .sugg-icon { font-size: 16px; flex-shrink: 0; }
+  .sugg-name { font-weight: 500; }
+  .sugg-sub  { font-size: 11px; color: #888; margin-top: 1px; }
+  .sugg-no-result { padding: 10px 14px; font-size: 12px; color: #999; text-align: center; }
+  .search-clear {
+    position: absolute; right: 10px; top: 50%; transform: translateY(-50%);
+    font-size: 13px; color: #aaa; cursor: pointer; line-height: 1;
+    width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+    border-radius: 50%; background: #e5e5e5; transition: background .15s;
+  }
+  .search-clear:hover { background: #d1d5db; color: #555; }
+  .search-input { padding-right: 32px; }
+  .sugg-section-label {
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+    color: #aaa; padding: 8px 14px 4px; background: #fafafa;
+  }
+  .sugg-item-nominatim .sugg-name {
+    font-size: 12px; font-weight: 400; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; max-width: 230px;
+  }
+  .nominatim-loading { padding: 10px 14px; font-size: 12px; color: #aaa; display:flex; align-items:center; gap:6px; }
+  .spinner { width:12px; height:12px; border:2px solid #ddd; border-top-color:#2563eb; border-radius:50%; animation:spin .6s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+
+  /* ── Graph peak banner ── */
+  .peak-banner {
+    display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+    background: #fef9c3; border: 1px solid #fde68a; border-radius: 8px;
+    font-size: 12px; color: #92400e; margin-bottom: 6px;
+  }
+  .peak-banner b { color: #78350f; }
+
+  /* ── Tabs ── */
+  .tabs {
+    display: flex; background: #fff; border-bottom: 1px solid #e5e5e5;
+    padding: 0 20px; overflow-x: auto;
+  }
+  .tab {
+    padding: 10px 18px; font-size: 13px; font-weight: 500; cursor: pointer;
+    color: #888; border-bottom: 2px solid transparent; white-space: nowrap;
+    transition: color .15s, border-color .15s;
+  }
+  .tab:hover  { color: #333; }
+  .tab.active { color: #111; border-bottom-color: #111; }
+
+  /* ── Layout ── */
+  .content { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; max-width: 1100px; margin: 0 auto; }
+  .hidden  { display: none !important; }
+
+  /* ── Metric cards ── */
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; }
+  .mc { background: #fff; border: 1px solid #e5e5e5; border-radius: 10px; padding: 12px 14px; }
+  .ml { font-size: 11px; color: #888; margin-bottom: 4px; text-transform: uppercase; letter-spacing: .4px; }
+  .mv { font-size: 24px; font-weight: 600; color: #111; }
+  .ms { font-size: 11px; margin-top: 3px; }
+
+  /* ── Map ── */
+  .map-wrap { position: relative; border-radius: 12px; overflow: hidden; border: 1px solid #e5e5e5; }
+
+  /* ── Compass ── */
+  .compass-wrap {
+    position: absolute; bottom: 18px; left: 14px; z-index: 1000;
+    pointer-events: none; user-select: none;
+  }
+  .compass-ring {
+    width: 66px; height: 66px; border-radius: 50%;
+    background: rgba(255,255,255,0.95); border: 1px solid rgba(0,0,0,0.18);
+    display: flex; align-items: center; justify-content: center; position: relative;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .compass-ring .cn { position:absolute; top:4px;    left:50%; transform:translateX(-50%); font-size:10px; font-weight:700; color:#ef4444; }
+  .compass-ring .cs { position:absolute; bottom:4px; left:50%; transform:translateX(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .ce { position:absolute; right:5px;  top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-ring .cw { position:absolute; left:5px;   top:50%;  transform:translateY(-50%); font-size:10px; font-weight:600; color:#555; }
+  .compass-needle { position:absolute; top:50%; left:50%; width:4px; height:38px; transform:translate(-50%,-50%); }
+  .needle-n { position:absolute; top:0;    left:0; width:4px; height:19px; background:#ef4444; border-radius:2px 2px 0 0; }
+  .needle-s { position:absolute; bottom:0; left:0; width:4px; height:19px; background:#aaa;    border-radius:0 0 2px 2px; }
+  .compass-dot { position:absolute; top:50%; left:50%; width:7px; height:7px; background:#222; border-radius:50%; transform:translate(-50%,-50%); z-index:2; }
+
+  /* ── Panels ── */
+  .panel { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:14px; }
+  .panel-title { font-size:13px; font-weight:600; color:#111; margin-bottom:10px; }
+
+  /* ── Alert items ── */
+  .alert-item { display:flex; align-items:flex-start; gap:9px; padding:7px 0; border-bottom:1px solid #f0f0f0; }
+  .alert-item:last-child { border-bottom:none; }
+  .badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; white-space:nowrap; margin-top:1px; }
+  .bd { background:#fee2e2; color:#dc2626; }
+  .bw { background:#fef3c7; color:#d97706; }
+  .bi { background:#dbeafe; color:#2563eb; }
+  .bs { background:#dcfce7; color:#16a34a; }
+  .at    { font-size:12px; color:#222; line-height:1.4; }
+  .atime { font-size:11px; color:#999; margin-top:2px; }
+
+  /* ── Route rows ── */
+  .route-row { display:flex; align-items:center; gap:9px; padding:8px 0; border-bottom:1px solid #f0f0f0; flex-wrap:wrap; }
+  .route-row:last-child { border-bottom:none; }
+  .route-name     { font-size:12px; font-weight:500; color:#111; min-width:140px; }
+  .route-dir      { font-size:11px; font-weight:500; padding:2px 8px; border-radius:12px; border:1px solid; white-space:nowrap; }
+  .route-bar-wrap { flex:1; min-width:60px; height:6px; background:#f0f0f0; border-radius:3px; overflow:hidden; }
+  .route-bar      { height:100%; border-radius:3px; transition:width .6s; }
+  .route-pct      { font-size:11px; min-width:30px; text-align:right; color:#888; }
+  .route-rec      { font-size:11px; font-weight:600; min-width:90px; text-align:right; }
+
+  /* ── Zone table ── */
+  .zt { width:100%; border-collapse:collapse; font-size:12px; }
+  .zt th { text-align:left; color:#888; font-weight:500; padding:5px 8px; border-bottom:1px solid #f0f0f0; font-size:11px; text-transform:uppercase; letter-spacing:.3px; }
+  .zt td { padding:6px 8px; border-bottom:1px solid #f0f0f0; color:#222; }
+  .zt tr:last-child td { border-bottom:none; }
+  .zt tr:hover td { background:#fafafa; }
+  .dp { font-size:10px; font-weight:600; padding:2px 8px; border-radius:20px; }
+
+  /* ── Legend ── */
+  .legend { display:flex; gap:14px; flex-wrap:wrap; padding:8px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; }
+  .leg-item { display:flex; align-items:center; gap:5px; font-size:11px; color:#666; }
+  .leg-dot  { width:12px; height:12px; border-radius:3px; flex-shrink:0; }
+
+  /* ── Sim bar ── */
+  .sim-bar { display:flex; align-items:center; gap:10px; padding:9px 14px; background:#fff; border:1px solid #e5e5e5; border-radius:10px; font-size:12px; color:#666; }
+  .sim-bar input[type=range] { flex:1; accent-color:#111; }
+  .sim-bar button { font-size:11px; padding:4px 12px; border-radius:7px; border:1px solid #ddd; background:#fff; cursor:pointer; color:#111; transition:background .15s; }
+  .sim-bar button:hover { background:#f5f5f5; }
+
+  /* ── Grid helpers ── */
+  .two-col   { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .three-col { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr); gap:14px; }
+  .route-legend-strip { display:flex; gap:16px; flex-wrap:wrap; margin-top:10px; padding-top:10px; border-top:1px solid #f0f0f0; }
+  .rl-item { display:flex; align-items:center; gap:6px; font-size:11px; color:#666; }
+  .rl-line { width:26px; height:4px; border-radius:2px; }
+
+  /* ── Weather widget ── */
+  .weather-widget {
+    background: linear-gradient(135deg, #1e3a5f 0%, #2563eb 60%, #38bdf8 100%);
+    border-radius: 12px; padding: 16px 18px; color: #fff; border: none;
+    display: flex; flex-direction: column; gap: 10px;
+  }
+  .weather-widget .panel-title { color: rgba(255,255,255,0.75); margin-bottom: 4px; }
+  .weather-main { display:flex; align-items:center; justify-content:space-between; }
+  .weather-temp { font-size: 42px; font-weight: 700; letter-spacing: -1px; }
+  .weather-icon { font-size: 44px; line-height: 1; }
+  .weather-desc { font-size: 13px; opacity: .85; margin-top: 2px; }
+  .weather-location { font-size: 12px; opacity: .7; }
+  .weather-toggle { display:flex; gap:6px; margin-top:4px; }
+  .weather-toggle button {
+    font-size: 11px; padding: 2px 10px; border-radius: 20px; cursor: pointer;
+    border: 1px solid rgba(255,255,255,0.4); background: rgba(255,255,255,0.15);
+    color: #fff; transition: background .15s;
+  }
+  .weather-toggle button.active { background: rgba(255,255,255,0.35); font-weight: 600; }
+  .weather-forecast { display:flex; gap:8px; overflow-x:auto; padding-bottom:2px; }
+  .wf-day {
+    display:flex; flex-direction:column; align-items:center; gap:3px;
+    min-width: 44px; background: rgba(255,255,255,0.12); border-radius:8px;
+    padding: 6px 4px; font-size: 11px;
+  }
+  .wf-day .wf-name { opacity:.75; font-size:10px; }
+  .wf-day .wf-icon { font-size:16px; }
+  .wf-day .wf-hi   { font-weight:600; }
+  .wf-day .wf-lo   { opacity:.65; }
+  .weather-detail-row { display:flex; gap:14px; flex-wrap:wrap; margin-top:2px; }
+  .wd-item { display:flex; align-items:center; gap:4px; font-size:11px; opacity:.8; }
+
+  /* ── Visitor chart panel ── */
+  .chart-panel { background:#fff; border:1px solid #e5e5e5; border-radius:12px; padding:14px; }
+
+  /* ── Learn tab ── */
+  @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500;600&display=swap');
+
+  #tab-learn { font-family: 'DM Sans', sans-serif; }
+  #tab-learn h1,#tab-learn h2,#tab-learn h3,#tab-learn .env-label,#tab-learn .badge-name { font-family: 'Syne', sans-serif; }
+
+  /* Hero */
+  .lrn-hero {
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #164e63 100%);
+    border-radius:16px; padding:36px 28px 28px; color:#fff; position:relative; overflow:hidden;
+  }
+  .lrn-hero::before {
+    content:''; position:absolute; inset:0;
+    background: radial-gradient(ellipse at 80% 0%, rgba(96,165,250,0.18) 0%, transparent 60%),
+                radial-gradient(ellipse at 20% 100%, rgba(34,211,238,0.12) 0%, transparent 55%);
+    pointer-events:none;
+  }
+  .lrn-hero-inner { position:relative; z-index:1; }
+  .lrn-hero h1 { font-size:28px; font-weight:800; letter-spacing:-0.5px; margin-bottom:8px; }
+  .lrn-hero p  { font-size:13px; opacity:.75; max-width:560px; line-height:1.7; }
+  .lrn-hero-stats { display:flex; gap:24px; margin-top:20px; flex-wrap:wrap; }
+  .lrn-stat { display:flex; flex-direction:column; align-items:center; background:rgba(255,255,255,0.1); border:1px solid rgba(255,255,255,0.15); border-radius:10px; padding:10px 18px; min-width:80px; }
+  .lrn-stat-val { font-size:22px; font-weight:700; font-family:'Syne',sans-serif; }
+  .lrn-stat-lbl { font-size:10px; opacity:.65; margin-top:2px; text-transform:uppercase; letter-spacing:.5px; }
+
+  /* Language selector */
+  .lrn-lang-bar { display:flex; align-items:center; gap:8px; }
+  .lrn-lang-btn {
+    font-size:12px; font-weight:500; padding:5px 14px; border-radius:20px;
+    border:1px solid #e5e5e5; background:#fff; cursor:pointer; color:#555;
+    transition:all .15s;
+  }
+  .lrn-lang-btn.active { background:#0f172a; color:#fff; border-color:#0f172a; }
+
+  /* Progress bar */
+  .lrn-progress-wrap { background:#f0f0f0; border-radius:10px; height:8px; overflow:hidden; }
+  .lrn-progress-bar  { height:100%; border-radius:10px; background:linear-gradient(90deg,#2563eb,#22d3ee); transition:width .5s ease; }
+
+  /* Environment selector */
+  .lrn-env-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(130px,1fr)); gap:10px; }
+  .lrn-env-card {
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:8px; padding:16px 10px; border-radius:14px; cursor:pointer;
+    border:2px solid transparent; background:#f8fafc; transition:all .2s;
+    text-align:center;
+  }
+  .lrn-env-card:hover { background:#eff6ff; border-color:#bfdbfe; transform:translateY(-2px); }
+  .lrn-env-card.active { background:#eff6ff; border-color:#2563eb; box-shadow:0 0 0 3px #dbeafe; }
+  .lrn-env-icon { font-size:32px; line-height:1; }
+  .env-label { font-size:11px; font-weight:700; color:#0f172a; text-transform:uppercase; letter-spacing:.5px; }
+  .env-sub { font-size:10px; color:#888; }
+
+  /* Scenario section */
+  .lrn-scenario-wrap { position:relative; }
+  .lrn-scenario-card {
+    background:#fff; border:1px solid #e5e5e5; border-radius:16px; padding:24px;
+    box-shadow:0 2px 16px rgba(0,0,0,0.06);
+  }
+  .lrn-scene-header { display:flex; align-items:flex-start; gap:14px; margin-bottom:18px; }
+  .lrn-scene-illus {
+    width:80px; height:80px; border-radius:14px; display:flex; align-items:center;
+    justify-content:center; font-size:38px; flex-shrink:0;
+  }
+  .lrn-scene-meta { flex:1; }
+  .lrn-scene-tag {
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px;
+    padding:2px 10px; border-radius:20px; display:inline-block; margin-bottom:6px;
+  }
+  .lrn-scene-q { font-size:15px; font-weight:600; color:#0f172a; line-height:1.5; }
+  .lrn-scene-context { font-size:12px; color:#666; margin-top:4px; line-height:1.6; }
+
+  /* Options */
+  .lrn-options { display:flex; flex-direction:column; gap:9px; }
+  .lrn-opt {
+    display:flex; align-items:center; gap:12px; padding:12px 16px; border-radius:12px;
+    border:1.5px solid #e5e5e5; background:#fafafa; cursor:pointer; transition:all .18s;
+  }
+  .lrn-opt:hover:not(.revealed) { border-color:#2563eb; background:#eff6ff; }
+  .lrn-opt.correct   { border-color:#22c55e; background:#f0fdf4; }
+  .lrn-opt.incorrect { border-color:#ef4444; background:#fef2f2; }
+  .lrn-opt.dimmed    { opacity:.45; cursor:default; }
+  .lrn-opt-key {
+    width:28px; height:28px; border-radius:50%; display:flex; align-items:center;
+    justify-content:center; font-size:12px; font-weight:700; flex-shrink:0;
+    background:#e5e5e5; color:#555;
+  }
+  .lrn-opt.correct   .lrn-opt-key { background:#22c55e; color:#fff; }
+  .lrn-opt.incorrect .lrn-opt-key { background:#ef4444; color:#fff; }
+  .lrn-opt-text { font-size:13px; color:#222; flex:1; line-height:1.4; }
+  .lrn-opt-badge { font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+
+  /* Feedback */
+  .lrn-feedback {
+    margin-top:14px; padding:14px 16px; border-radius:12px; border-left:4px solid;
+    display:none; animation:fadeSlide .25s ease;
+  }
+  @keyframes fadeSlide { from { opacity:0; transform:translateY(-6px); } to { opacity:1; transform:translateY(0); } }
+  .lrn-feedback.correct   { background:#f0fdf4; border-color:#22c55e; }
+  .lrn-feedback.incorrect { background:#fef2f2; border-color:#ef4444; }
+  .lrn-feedback-title { font-size:13px; font-weight:700; margin-bottom:4px; }
+  .lrn-feedback-body  { font-size:12px; color:#555; line-height:1.6; }
+  .lrn-next-btn {
+    margin-top:14px; padding:9px 24px; border-radius:10px; border:none;
+    background:#0f172a; color:#fff; font-size:13px; font-weight:600; cursor:pointer;
+    display:none; transition:background .15s; font-family:'DM Sans',sans-serif;
+  }
+  .lrn-next-btn:hover { background:#1e3a5f; }
+
+  /* Scenario nav dots */
+  .lrn-dots { display:flex; gap:6px; align-items:center; }
+  .lrn-dot {
+    width:8px; height:8px; border-radius:50%; background:#e5e5e5; transition:all .2s;
+  }
+  .lrn-dot.done    { background:#22c55e; }
+  .lrn-dot.active  { background:#2563eb; width:20px; border-radius:4px; }
+  .lrn-dot.wrong   { background:#ef4444; }
+
+  /* Tips section */
+  .lrn-tips-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:12px; }
+  .lrn-tip-card {
+    background:#fff; border:1px solid #e5e5e5; border-radius:14px; padding:16px;
+    transition:box-shadow .2s, transform .2s;
+  }
+  .lrn-tip-card:hover { box-shadow:0 6px 24px rgba(0,0,0,0.09); transform:translateY(-2px); }
+  .lrn-tip-icon  { font-size:26px; margin-bottom:8px; }
+  .lrn-tip-title { font-size:13px; font-weight:700; color:#0f172a; margin-bottom:5px; font-family:'Syne',sans-serif; }
+  .lrn-tip-body  { font-size:11px; color:#666; line-height:1.6; }
+  .lrn-tip-tag   {
+    font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px; margin-top:8px;
+    display:inline-block;
+  }
+
+  /* Badges */
+  .lrn-badges-grid { display:flex; gap:12px; flex-wrap:wrap; }
+  .lrn-badge {
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    padding:14px 16px; border-radius:14px; min-width:80px; text-align:center;
+    border:2px solid; transition:all .2s;
+  }
+  .lrn-badge.locked { filter:grayscale(1); opacity:.4; border-style:dashed; }
+  .lrn-badge-icon { font-size:28px; }
+  .badge-name { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; }
+  .badge-desc { font-size:9px; opacity:.7; }
+
+  /* Certificate */
+  .lrn-cert {
+    background:linear-gradient(135deg,#0f172a,#1e3a5f); border-radius:16px;
+    padding:28px; color:#fff; text-align:center; position:relative; overflow:hidden;
+  }
+  .lrn-cert::before {
+    content:''; position:absolute; inset:0;
+    background:url("data:image/svg+xml,%3Csvg width='40' height='40' viewBox='0 0 40 40' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='%23ffffff' fill-opacity='0.03'%3E%3Cpath d='M20 0L0 20l20 20 20-20z'/%3E%3C/g%3E%3C/svg%3E");
+    pointer-events:none;
+  }
+  .lrn-cert-inner { position:relative; z-index:1; }
+  .lrn-cert h2 { font-size:20px; font-weight:800; margin-bottom:4px; }
+  .lrn-cert p  { font-size:12px; opacity:.7; margin-bottom:16px; }
+  .lrn-cert-prog { font-size:38px; font-weight:800; font-family:'Syne',sans-serif; }
+  .lrn-cert-btn {
+    margin-top:14px; padding:9px 22px; border-radius:10px; border:1.5px solid rgba(255,255,255,0.5);
+    background:rgba(255,255,255,0.12); color:#fff; font-size:12px; font-weight:600;
+    cursor:pointer; backdrop-filter:blur(4px); font-family:'DM Sans',sans-serif;
+    transition:background .15s;
+  }
+  .lrn-cert-btn:hover { background:rgba(255,255,255,0.22); }
+
+  /* Panel overrides inside learn */
+  #tab-learn .panel { border-radius:16px; }
+  #tab-learn .panel-title { font-family:'Syne',sans-serif; font-size:15px; font-weight:700; color:#0f172a; }
+
+  @media (max-width:700px) {
+    .metrics { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    .two-col   { grid-template-columns: 1fr; }
+    .three-col { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ TOPBAR ══ -->
+<div class="topbar">
+  <div class="topbar-left">
+    <span class="status-dot" id="liveDot"></span>
+    <span class="topbar-title">CrowdSense</span>
+    <span class="topbar-sub">Smart Crowd Monitoring System</span>
+  </div>
+  <div style="display:flex;align-items:center;gap:14px">
+    <span id="clockEl"></span>
+    <div class="search-wrap" id="searchWrap">
+      <span class="search-icon">🔍</span>
+      <input class="search-input" id="searchInput" type="text"
+             placeholder="Search any venue or city…"
+             autocomplete="off"
+             oninput="onSearchInput(this.value)"
+             onkeydown="onSearchKey(event)"
+             onfocus="showSuggestions()"
+             onblur="setTimeout(hideSuggestions,220)"/>
+      <span class="search-clear hidden" id="searchClear" onclick="clearSearch()">&#x2715;</span>
+      <div class="search-suggestions" id="searchSugg"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ TABS ══ -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('overview',this)">Overview</div>
+  <div class="tab"        onclick="switchTab('learn',this)">Learn</div>
+  <div class="tab"        onclick="switchTab('routes',this)">Routes</div>
+  <div class="tab"        onclick="switchTab('alerts',this)">Alerts</div>
+  <div class="tab"        onclick="switchTab('zones',this)">Zones</div>
+</div>
+
+<!-- ══════════ TAB: OVERVIEW ══════════ -->
+<div class="content" id="tab-overview">
+
+  <!-- External venue banner (shown when non-venue location selected) -->
+  <div id="externalVenueBanner" style="display:none;align-items:center;gap:8px;padding:9px 14px;background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;font-size:13px;color:#1e40af;flex-wrap:wrap"></div>
+
+  <!-- Metric cards -->
+  <div class="metrics">
+    <div class="mc"><div class="ml">Total visitors</div><div class="mv" id="m-total">0</div><div class="ms" style="color:#16a34a">live count</div></div>
+    <div class="mc"><div class="ml">Avg density</div><div class="mv" id="m-density">0</div><div class="ms" style="color:#888">people / m²</div></div>
+    <div class="mc"><div class="ml">Active alerts</div><div class="mv" id="m-alerts">0</div><div class="ms" style="color:#dc2626" id="m-alert-lbl"></div></div>
+    <div class="mc"><div class="ml">Risk level</div><div class="mv" id="m-risk">—</div><div class="ms" id="m-risk-sub"></div></div>
+  </div>
+
+  <!-- Map -->
+  <div class="map-wrap">
+    <div id="map" style="height:320px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+
+  <!-- Density legend -->
+  <div class="legend">
+    <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low density</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High</div>
+    <div class="leg-item"><div class="leg-dot" style="background:#111"></div>Dangerous</div>
+  </div>
+
+  <!-- Weather + Visitor graph (side by side) -->
+  <div class="two-col">
+
+    <!-- Weather widget -->
+    <div class="weather-widget">
+      <div class="panel-title">☁ Weather — Bengaluru</div>
+      <div class="weather-main">
+        <div>
+          <div class="weather-temp"><span id="wTemp">32</span>°<span id="wUnit">C</span></div>
+          <div class="weather-desc" id="wDesc">Very warm with sunshine and a few clouds</div>
+          <div class="weather-location">Bengaluru, India · <span id="wHumidity">52%</span> humidity</div>
+          <div class="weather-toggle">
+            <button class="active" id="btnC" onclick="setUnit('C')">°C</button>
+            <button id="btnF" onclick="setUnit('F')">°F</button>
+          </div>
+        </div>
+        <div class="weather-icon" id="wIcon">🌤</div>
+      </div>
+      <div class="weather-detail-row">
+        <div class="wd-item">💨 <span id="wWind">14 km/h</span></div>
+        <div class="wd-item">💧 <span id="wRain">0%</span> rain</div>
+        <div class="wd-item">👁 <span id="wVis">10 km</span> visibility</div>
+        <div class="wd-item">🌡 Feels <span id="wFeels">34°</span></div>
+      </div>
+      <div class="weather-forecast" id="wForecast"></div>
+    </div>
+
+    <!-- Visitor trend chart -->
+    <div class="chart-panel">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div class="panel-title" style="margin-bottom:0">Visitor Trend — Last 30 min</div>
+        <span id="graphRangeLabel" style="font-size:11px;color:#888"></span>
+      </div>
+      <div class="peak-banner hidden" id="peakBanner">
+        📈 <span id="peakText"></span>
+      </div>
+      <canvas id="visitorChart" height="170"></canvas>
+      <div style="display:flex;gap:14px;margin-top:8px;flex-wrap:wrap">
+        <div class="leg-item"><div class="leg-dot" style="background:#22c55e"></div>Low (&lt;2k)</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#f59e0b"></div>Moderate (2k–5k)</div>
+        <div class="leg-item"><div class="leg-dot" style="background:#ef4444"></div>High (&gt;5k)</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Alerts + Route snapshot -->
+  <div class="two-col">
+    <div class="panel"><div class="panel-title">Recent alerts</div><div id="alertFeed"></div></div>
+    <div class="panel"><div class="panel-title">Route snapshot</div><div id="routeSnap"></div></div>
+  </div>
+
+  <!-- Sim controls -->
+  <div class="sim-bar">
+    <span>Simulation speed</span>
+    <input type="range" min="1" max="5" value="2" step="1" id="simSpeed"
+           oninput="state.speed=+this.value;document.getElementById('simSpeedLbl').textContent=this.value+'x'">
+    <span id="simSpeedLbl">2x</span>
+    <button id="simToggle" onclick="toggleSim()">Pause</button>
+  </div>
+
+</div>
+
+<!-- ══════════ TAB: LEARN ══════════ -->
+<div class="content hidden" id="tab-learn">
+
+  <!-- Hero -->
+  <div class="lrn-hero">
+    <div class="lrn-hero-inner">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;flex-wrap:wrap;gap:16px">
+        <div>
+          <h1>🛡 Crowd Safety Awareness</h1>
+          <p>Interactive scenarios, safety tips, and real-world guidance for staying safe in crowded public spaces. Choose your environment and start learning.</p>
+        </div>
+        <!-- Language selector -->
+        <div>
+          <div style="font-size:10px;opacity:.6;margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px">Language</div>
+          <div class="lrn-lang-bar">
+            <button class="lrn-lang-btn active" onclick="setLang('en',this)">English</button>
+            <button class="lrn-lang-btn" onclick="setLang('kn',this)">ಕನ್ನಡ</button>
+            <button class="lrn-lang-btn" onclick="setLang('hi',this)">हिन्दी</button>
+          </div>
+        </div>
+      </div>
+      <div class="lrn-hero-stats">
+        <div class="lrn-stat"><div class="lrn-stat-val" id="stat-done">0</div><div class="lrn-stat-lbl">Completed</div></div>
+        <div class="lrn-stat"><div class="lrn-stat-val" id="stat-score">0%</div><div class="lrn-stat-lbl">Accuracy</div></div>
+        <div class="lrn-stat"><div class="lrn-stat-val" id="stat-badges">0</div><div class="lrn-stat-lbl">Badges</div></div>
+        <div class="lrn-stat"><div class="lrn-stat-val" id="stat-streak">0</div><div class="lrn-stat-lbl">Streak 🔥</div></div>
+      </div>
+      <!-- Overall progress -->
+      <div style="margin-top:18px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;opacity:.65;margin-bottom:6px">
+          <span>Overall progress</span><span id="prog-pct">0 / 0 scenarios</span>
+        </div>
+        <div class="lrn-progress-wrap"><div class="lrn-progress-bar" id="lrn-prog-bar" style="width:0%"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Environment selector -->
+  <div class="panel">
+    <div class="panel-title" id="env-title">Choose Your Environment</div>
+    <div class="lrn-env-grid" id="envGrid"></div>
+  </div>
+
+  <!-- Scenario card -->
+  <div class="lrn-scenario-wrap" id="scenarioSection" style="display:none">
+    <div class="lrn-scenario-card">
+      <!-- Scenario header -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+        <div style="display:flex;align-items:center;gap:10px">
+          <div id="scene-env-badge" style="font-size:22px"></div>
+          <div>
+            <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:#888" id="scene-env-name"></div>
+            <div style="font-size:12px;color:#666" id="scene-num"></div>
+          </div>
+        </div>
+        <div class="lrn-dots" id="sceneDots"></div>
+      </div>
+
+      <!-- Scene illustration + question -->
+      <div class="lrn-scene-header">
+        <div class="lrn-scene-illus" id="scene-illus"></div>
+        <div class="lrn-scene-meta">
+          <span class="lrn-scene-tag" id="scene-tag"></span>
+          <div class="lrn-scene-q" id="scene-q"></div>
+          <div class="lrn-scene-context" id="scene-ctx"></div>
+        </div>
+      </div>
+
+      <!-- Options -->
+      <div class="lrn-options" id="sceneOpts"></div>
+
+      <!-- Feedback -->
+      <div class="lrn-feedback" id="sceneFeedback">
+        <div class="lrn-feedback-title" id="fb-title"></div>
+        <div class="lrn-feedback-body" id="fb-body"></div>
+      </div>
+
+      <button class="lrn-next-btn" id="nextBtn" onclick="nextScenario()">Next scenario →</button>
+    </div>
+  </div>
+
+  <!-- Safety Tips -->
+  <div class="panel" id="tipsPanel">
+    <div class="panel-title" id="tips-title">Essential Safety Tips</div>
+    <div class="lrn-tips-grid" id="tipsGrid"></div>
+  </div>
+
+  <!-- Badges & Achievements -->
+  <div class="panel">
+    <div class="panel-title">Achievements</div>
+    <div class="lrn-badges-grid" id="badgesGrid"></div>
+  </div>
+
+  <!-- Certificate -->
+  <div class="lrn-cert" id="certPanel" style="display:none">
+    <div class="lrn-cert-inner">
+      <div style="font-size:48px;margin-bottom:8px">🏆</div>
+      <h2>Crowd Safety Certified!</h2>
+      <p>You've completed all scenarios with outstanding performance.</p>
+      <div class="lrn-cert-prog" id="cert-score"></div>
+      <div style="font-size:11px;opacity:.5;margin-top:4px">Accuracy Score</div>
+      <button class="lrn-cert-btn" onclick="resetLearn()">Start Over</button>
+    </div>
+  </div>
+
+</div>
+
+<!-- ══════════ TAB: ROUTES ══════════ -->
+<div class="content hidden" id="tab-routes">
+  <div class="map-wrap">
+    <div id="routeMapWrap" style="height:380px"></div>
+    <div class="compass-wrap"><div class="compass-ring">
+      <span class="cn">N</span><span class="cs">S</span><span class="ce">E</span><span class="cw">W</span>
+      <div class="compass-needle"><div class="needle-n"></div><div class="needle-s"></div></div>
+      <div class="compass-dot"></div>
+    </div></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title">Route directions &amp; load status</div>
+    <div id="routeStatusList"></div>
+    <div class="route-legend-strip">
+      <div class="rl-item"><div class="rl-line" style="background:#22c55e"></div>Clear — recommended</div>
+      <div class="rl-item"><div class="rl-line" style="background:#f59e0b"></div>Moderate — use with care</div>
+      <div class="rl-item"><div class="rl-line" style="background:#ef4444"></div>Congested — avoid</div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: ALERTS ══════════ -->
+<div class="content hidden" id="tab-alerts">
+  <div class="panel" style="max-height:500px;overflow-y:auto">
+    <div class="panel-title">All alerts (latest first)</div>
+    <div id="allAlertFeed"></div>
+  </div>
+</div>
+
+<!-- ══════════ TAB: ZONES ══════════ -->
+<div class="content hidden" id="tab-zones">
+  <div class="panel">
+    <div class="panel-title">Zone status — live</div>
+    <div style="overflow-x:auto">
+      <table class="zt">
+        <thead><tr><th>Zone</th><th>Count</th><th>Density (p/m²)</th><th>Capacity %</th><th>Status</th></tr></thead>
+        <tbody id="zoneTableBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════ SCRIPTS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* ─────────── SEARCH BAR ─────────── */
+
+// Known static crowd data (venue index or named place)
+const KNOWN_PLACES = {
+  'Kempegowda International Airport': { vIdx:3, visitors:6200, risk:'High',     riskColor:'#d97706', alerts:5 },
+  'Lalbagh Botanical Garden':         { vIdx:0, visitors:3000, risk:'Moderate',  riskColor:'#2563eb', alerts:2 },
+  'Mysore Palace':                    { vIdx:null, visitors:4800, risk:'High',   riskColor:'#d97706', alerts:3, center:[12.3052,76.6552], zoom:16 },
+  'Chinnaswamy Stadium':              { vIdx:1, visitors:5500, risk:'Critical',  riskColor:'#dc2626', alerts:6 },
+  'M. Chinnaswamy Stadium':           { vIdx:1, visitors:5500, risk:'Critical',  riskColor:'#dc2626', alerts:6 },
+  'Iskcon Temple':                    { vIdx:2, visitors:2100, risk:'Moderate',  riskColor:'#2563eb', alerts:1 },
+  'BLR Airport':                      { vIdx:3, visitors:6200, risk:'High',     riskColor:'#d97706', alerts:5 },
+};
+
+const TOP_PLACES = [
+  {icon:'✈️', name:'Kempegowda International Airport', sub:'Airport · Devanahalli',    vIdx:3},
+  {icon:'🌿', name:'Lalbagh Botanical Garden',          sub:'Park · Bengaluru South',   vIdx:0},
+  {icon:'🏏', name:'M. Chinnaswamy Stadium',            sub:'Cricket Stadium · MG Road',vIdx:1},
+  {icon:'🛕', name:'Iskcon Temple',                     sub:'Temple · Rajajinagar',     vIdx:2},
+  {icon:'🏰', name:'Mysore Palace',                     sub:'Heritage · Mysore',        vIdx:null},
+];
+
+let suggHighlight = -1;
+let nominatimTimer = null;
+
+function onSearchInput(val) {
+  suggHighlight = -1;
+  const clearBtn = document.getElementById('searchClear');
+  clearBtn.classList.toggle('hidden', !val);
+  const box = document.getElementById('searchSugg');
+  if (!val.trim()) { showSuggestions(); return; }
+
+  const q = val.toLowerCase();
+
+  // Local matches first
+  const localMatches = TOP_PLACES.filter(p =>
+    p.name.toLowerCase().includes(q) || p.sub.toLowerCase().includes(q)
+  );
+
+  // Show loading + local matches immediately
+  let html = '';
+  if (localMatches.length) {
+    html += `<div class="sugg-section-label">⭐ Known venues</div>`;
+    html += localMatches.map(p =>
+      `<div class="sugg-item" onmousedown="selectLocalPlace(${p.vIdx === null ? 'null' : p.vIdx},'${p.name}')">
+        <span class="sugg-icon">${p.icon}</span>
+        <div><div class="sugg-name">${p.name}</div><div class="sugg-sub">${p.sub}</div></div>
+      </div>`).join('');
+  }
+  html += `<div class="sugg-section-label">🌍 Other locations</div>
+           <div class="nominatim-loading" id="nominatimLoad"><div class="spinner"></div>Searching…</div>`;
+  box.innerHTML = html;
+  box.classList.add('open');
+
+  // Debounce Nominatim
+  clearTimeout(nominatimTimer);
+  nominatimTimer = setTimeout(() => fetchNominatim(val, localMatches.length > 0), 400);
+}
+
+function fetchNominatim(q, hasLocal) {
+  fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(q)}&limit=5&addressdetails=1`,
+        {headers:{'Accept-Language':'en'}})
+  .then(r => r.json())
+  .then(data => {
+    const loadEl = document.getElementById('nominatimLoad');
+    if (!loadEl) return;
+    if (!data.length) {
+      loadEl.outerHTML = `<div class="sugg-no-result">No locations found for "<b>${q}</b>"</div>`;
+      return;
+    }
+    loadEl.outerHTML = data.map(item => {
+      const shortName = item.display_name.split(',').slice(0,2).join(',');
+      return `<div class="sugg-item sugg-item-nominatim" onmousedown="selectNominatimPlace('${encodeURIComponent(JSON.stringify(item))}')">
+        <span class="sugg-icon">📍</span>
+        <div><div class="sugg-name">${shortName}</div><div class="sugg-sub" style="font-size:10px;color:#aaa;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:240px">${item.display_name}</div></div>
+      </div>`;
+    }).join('');
+    document.getElementById('searchSugg').classList.add('open');
+  })
+  .catch(() => {
+    const loadEl = document.getElementById('nominatimLoad');
+    if (loadEl) loadEl.outerHTML = '<div class="sugg-no-result">Network error — showing local results only</div>';
+  });
+}
+
+function selectLocalPlace(vIdx, name) {
+  document.getElementById('searchInput').value = name;
+  document.getElementById('searchClear').classList.remove('hidden');
+  hideSuggestions();
+  if (vIdx !== null) {
+    switchVenue(vIdx);
+  } else {
+    // Non-venue known place (e.g. Mysore Palace) — fly map + show static data
+    const data = findKnownData(name);
+    if (data && data.center && maps.overview) {
+      maps.overview.setView(data.center, data.zoom || 15);
+    }
+    if (data) applyStaticCrowdData(data, name);
+  }
+}
+
+function selectNominatimPlace(encodedItem) {
+  const item = JSON.parse(decodeURIComponent(encodedItem));
+  const shortName = item.display_name.split(',').slice(0,2).join(',');
+  document.getElementById('searchInput').value = shortName;
+  document.getElementById('searchClear').classList.remove('hidden');
+  hideSuggestions();
+
+  const lat = parseFloat(item.lat), lon = parseFloat(item.lon);
+  if (maps.overview) maps.overview.setView([lat, lon], 15);
+
+  // Try to match known data
+  const matched = findKnownData(item.display_name);
+  if (matched) {
+    if (matched.vIdx !== null && matched.vIdx !== undefined) switchVenue(matched.vIdx);
+    else applyStaticCrowdData(matched, shortName);
+  } else {
+    applyStaticCrowdData(null, shortName);
+  }
+}
+
+function findKnownData(name) {
+  const n = name.toLowerCase();
+  for (const [key, val] of Object.entries(KNOWN_PLACES)) {
+    if (n.includes(key.toLowerCase())) return val;
+  }
+  return null;
+}
+
+function applyStaticCrowdData(data, name) {
+  // Show a banner in the metrics area
+  const banner = document.getElementById('externalVenueBanner');
+  if (!data) {
+    if (banner) { banner.textContent = `📍 "${name}" — No crowd data available for this location.`; banner.style.display='flex'; }
+    return;
+  }
+  if (banner) {
+    banner.innerHTML = `📍 <b>${name}</b> &nbsp;·&nbsp; Visitors: <b>${data.visitors.toLocaleString()}</b> &nbsp;·&nbsp; Risk: <b style="color:${data.riskColor}">${data.risk}</b> &nbsp;·&nbsp; Alerts: <b>${data.alerts}</b>`;
+    banner.style.display = 'flex';
+  }
+}
+
+function clearSearch() {
+  document.getElementById('searchInput').value = '';
+  document.getElementById('searchClear').classList.add('hidden');
+  const banner = document.getElementById('externalVenueBanner');
+  if (banner) banner.style.display = 'none';
+  showSuggestions();
+  document.getElementById('searchInput').focus();
+}
+
+function onSearchKey(e) {
+  const items = document.querySelectorAll('.sugg-item');
+  if (e.key === 'ArrowDown') {
+    suggHighlight = Math.min(suggHighlight+1, items.length-1);
+  } else if (e.key === 'ArrowUp') {
+    suggHighlight = Math.max(suggHighlight-1, 0);
+  } else if (e.key === 'Enter') {
+    if (suggHighlight >= 0 && items[suggHighlight]) items[suggHighlight].dispatchEvent(new Event('mousedown'));
+    else if (items[0]) items[0].dispatchEvent(new Event('mousedown'));
+    return;
+  } else if (e.key === 'Escape') { hideSuggestions(); return; }
+  items.forEach((el,i) => el.classList.toggle('highlighted', i===suggHighlight));
+}
+
+function showSuggestions() {
+  const box = document.getElementById('searchSugg');
+  box.innerHTML =
+    `<div class="sugg-section-label">⭐ Top searched places</div>` +
+    TOP_PLACES.map(p =>
+      `<div class="sugg-item" onmousedown="selectLocalPlace(${p.vIdx === null ? 'null' : p.vIdx},'${p.name}')">
+        <span class="sugg-icon">${p.icon}</span>
+        <div><div class="sugg-name">${p.name}</div><div class="sugg-sub">${p.sub}</div></div>
+      </div>`).join('');
+  box.classList.add('open');
+}
+
+function hideSuggestions() {
+  document.getElementById('searchSugg').classList.remove('open');
+}
+
+/* ─────────── VENUE DATA ─────────── */
+const VENUES = [
+  {
+    name:'Lalbagh Botanical Garden', center:[12.9507,77.5848], zoom:16,
+    zones:[
+      {name:'Main gate',    lat:12.9476,lng:77.5844,r:60, cap:500 },
+      {name:'Flower house', lat:12.9510,lng:77.5862,r:80, cap:700 },
+      {name:'Glass house',  lat:12.9520,lng:77.5835,r:90, cap:900 },
+      {name:'Lake area',    lat:12.9540,lng:77.5870,r:120,cap:1500},
+      {name:'North gate',   lat:12.9565,lng:77.5840,r:55, cap:400 },
+      {name:'Rock garden',  lat:12.9498,lng:77.5820,r:70, cap:600 },
+    ],
+    routes:[
+      {name:'Main entrance path', coords:[[12.9476,77.5844],[12.9495,77.5845],[12.9510,77.5835],[12.9520,77.5835]],load:30},
+      {name:'Lake loop',          coords:[[12.9510,77.5862],[12.9530,77.5868],[12.9540,77.5870],[12.9555,77.5855]],load:55},
+      {name:'North exit route',   coords:[[12.9520,77.5835],[12.9540,77.5837],[12.9565,77.5840]],               load:20},
+      {name:'Rock garden bypass', coords:[[12.9476,77.5844],[12.9490,77.5825],[12.9498,77.5820],[12.9510,77.5835]],load:70},
+    ]
+  },
+  {
+    name:'M. Chinnaswamy Stadium', center:[12.9792,77.5993], zoom:17,
+    zones:[
+      {name:'Main entrance',lat:12.9782,lng:77.5993,r:50,cap:800 },
+      {name:'Stand A',      lat:12.9798,lng:77.6005,r:70,cap:2000},
+      {name:'Stand B',      lat:12.9800,lng:77.5980,r:70,cap:2000},
+      {name:'VIP block',    lat:12.9795,lng:77.5993,r:45,cap:500 },
+      {name:'Concourse',    lat:12.9785,lng:77.6000,r:60,cap:1000},
+      {name:'Exit gate',    lat:12.9778,lng:77.5985,r:40,cap:600 },
+    ],
+    routes:[
+      {name:'Main entry', coords:[[12.9778,77.5985],[12.9782,77.5993],[12.9785,77.6000]],load:60},
+      {name:'East stand', coords:[[12.9785,77.6000],[12.9792,77.6002],[12.9798,77.6005]],load:80},
+      {name:'West stand', coords:[[12.9785,77.6000],[12.9792,77.5990],[12.9800,77.5980]],load:45},
+      {name:'VIP access', coords:[[12.9782,77.5993],[12.9790,77.5993],[12.9795,77.5993]],load:25},
+    ]
+  },
+  {
+    name:'Iskcon Temple', center:[12.9989,77.6091], zoom:17,
+    zones:[
+      {name:'Main entrance',lat:12.9980,lng:77.6085,r:50,cap:400},
+      {name:'Temple hall',  lat:12.9993,lng:77.6093,r:80,cap:800},
+      {name:'Prasad area',  lat:12.9985,lng:77.6098,r:60,cap:500},
+      {name:'Queue zone',   lat:12.9975,lng:77.6090,r:55,cap:600},
+      {name:'North exit',   lat:13.0000,lng:77.6090,r:40,cap:300},
+      {name:'Meditation',   lat:12.9995,lng:77.6080,r:50,cap:350},
+    ],
+    routes:[
+      {name:'Entry queue', coords:[[12.9975,77.6090],[12.9980,77.6085],[12.9985,77.6088]],load:65},
+      {name:'Temple path', coords:[[12.9985,77.6088],[12.9990,77.6091],[12.9993,77.6093]],load:40},
+      {name:'Prasad loop', coords:[[12.9993,77.6093],[12.9990,77.6097],[12.9985,77.6098]],load:30},
+      {name:'Exit north',  coords:[[12.9993,77.6093],[12.9997,77.6091],[13.0000,77.6090]],load:20},
+    ]
+  },
+  /* ── NEW: Kempegowda International Airport ── */
+  {
+    name:'Kempegowda Intl. Airport', center:[13.1986,77.7066], zoom:16,
+    zones:[
+      {name:'Terminal Entrance',lat:13.1983,lng:77.7060,r:70, cap:1500},
+      {name:'Departure Hall',   lat:13.1990,lng:77.7068,r:90, cap:2500},
+      {name:'Security Check',   lat:13.1995,lng:77.7072,r:60, cap:1800},
+      {name:'Arrival Area',     lat:13.1978,lng:77.7055,r:80, cap:2000},
+      {name:'Taxi Pickup',      lat:13.1980,lng:77.7080,r:60, cap:1000},
+      {name:'Parking Zone',     lat:13.1975,lng:77.7075,r:100,cap:2200},
+    ],
+    routes:[
+      {name:'Terminal Entry Road',  coords:[[13.1975,77.7055],[13.1983,77.7060],[13.1990,77.7068]],load:40},
+      {name:'Departure Corridor',   coords:[[13.1990,77.7068],[13.1992,77.7069],[13.1995,77.7072]],load:65},
+      {name:'Arrival Exit',         coords:[[13.1995,77.7072],[13.1988,77.7076],[13.1980,77.7080]],load:35},
+      {name:'Parking Access',       coords:[[13.1980,77.7080],[13.1977,77.7077],[13.1975,77.7075]],load:50},
+    ]
+  }
+];
+
+const ALERT_TEMPLATES = [
+  {level:'danger',  msg:'Dangerous density detected — initiate crowd dispersal'},
+  {level:'warning', msg:'High crowd buildup — alert security personnel'},
+  {level:'warning', msg:'Zone approaching capacity limit'},
+  {level:'info',    msg:'Route congestion — redirecting visitors northward'},
+  {level:'info',    msg:'Density increasing — monitoring closely'},
+  {level:'success', msg:'Zone cleared — normal flow resumed'},
+];
+
+/* ─────────── WEATHER DATA (static, Bengaluru) ─────────── */
+const WEATHER = {
+  tempC: 32, feelsC: 34, humidity: 52, wind: 14,
+  rain: 0, vis: 10,
+  desc: 'Very warm with sunshine and a few clouds',
+  icon: '🌤',
+  forecast: [
+    {d:'Wed',ic:'🌤',hi:36,lo:23},{d:'Thu',ic:'🌤',hi:36,lo:23},
+    {d:'Fri',ic:'⛅',hi:36,lo:22},{d:'Sat',ic:'☀',hi:37,lo:22},
+    {d:'Sun',ic:'🌤',hi:36,lo:22},{d:'Mon',ic:'⛅',hi:36,lo:22},
+    {d:'Tue',ic:'🌥',hi:35,lo:21},
+  ]
+};
+let wUnit = 'C';
+
+function cToF(c){ return Math.round(c*9/5+32); }
+function dispTemp(c){ return wUnit==='C'?c:cToF(c); }
+
+function renderWeather() {
+  document.getElementById('wTemp').textContent    = dispTemp(WEATHER.tempC);
+  document.getElementById('wUnit').textContent    = wUnit;
+  document.getElementById('wDesc').textContent    = WEATHER.desc;
+  document.getElementById('wIcon').textContent    = WEATHER.icon;
+  document.getElementById('wHumidity').textContent= WEATHER.humidity+'%';
+  document.getElementById('wWind').textContent    = WEATHER.wind+' km/h';
+  document.getElementById('wRain').textContent    = WEATHER.rain+'%';
+  document.getElementById('wVis').textContent     = WEATHER.vis+' km';
+  document.getElementById('wFeels').textContent   = dispTemp(WEATHER.feelsC)+'°';
+  document.getElementById('wForecast').innerHTML  = WEATHER.forecast.map(f=>`
+    <div class="wf-day">
+      <div class="wf-name">${f.d}</div>
+      <div class="wf-icon">${f.ic}</div>
+      <div class="wf-hi">${dispTemp(f.hi)}°</div>
+      <div class="wf-lo">${dispTemp(f.lo)}°</div>
+    </div>`).join('');
+}
+
+function setUnit(u) {
+  wUnit = u;
+  document.getElementById('btnC').classList.toggle('active', u==='C');
+  document.getElementById('btnF').classList.toggle('active', u==='F');
+  renderWeather();
+}
+
+/* ─────────── VISITOR CHART (improved) ─────────── */
+let visitorChart;
+let visitorHistory = [];   // {time, val}
+let tickCount = 0;
+const MAX_GRAPH_POINTS = 30;
+
+function segmentColor(val) {
+  if (val > 5000) return '#ef4444';
+  if (val > 2000) return '#f59e0b';
+  return '#22c55e';
+}
+
+function initVisitorChart() {
+  const ctx = document.getElementById('visitorChart').getContext('2d');
+  visitorChart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [{
+      label: 'Visitors',
+      data: [],
+      borderColor: '#2563eb',
+      backgroundColor: 'rgba(37,99,235,0.07)',
+      fill: true, tension: 0.4,
+      pointRadius: 3, pointBackgroundColor: [], pointBorderColor: [],
+      borderWidth: 2, segment: {
+        borderColor: ctx2 => {
+          const v = ctx2.p1.parsed.y;
+          return segmentColor(v);
+        }
+      }
+    }]},
+    options: {
+      responsive: true,
+      animation: { duration: 300 },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            title: items => 'Time: ' + items[0].label,
+            label: ctx2 => ' Visitors: ' + ctx2.parsed.y.toLocaleString()
+          }
+        }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Time', font:{size:11}, color:'#888' },
+          ticks: { font:{size:10}, color:'#888', maxRotation:45, minRotation:30 },
+          grid: { display: false }
+        },
+        y: {
+          title: { display: true, text: 'Visitors (count)', font:{size:11}, color:'#888' },
+          ticks: { font:{size:10}, color:'#888',
+            callback: v => v >= 1000 ? (v/1000).toFixed(1)+'k' : v },
+          grid: { color: '#f0f0f0' },
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
+function updateVisitorChart(total) {
+  tickCount++;
+  const now = new Date();
+  const label = now.getHours().toString().padStart(2,'0') + ':' +
+                now.getMinutes().toString().padStart(2,'0') + ':' +
+                now.getSeconds().toString().padStart(2,'0');
+  visitorHistory.push({ time: label, val: total });
+  if (visitorHistory.length > MAX_GRAPH_POINTS) visitorHistory.shift();
+
+  if (!visitorChart) return;
+
+  const labels = visitorHistory.map(h => h.time);
+  const data   = visitorHistory.map(h => h.val);
+  const colors = data.map(v => segmentColor(v));
+
+  visitorChart.data.labels = labels;
+  visitorChart.data.datasets[0].data = data;
+  visitorChart.data.datasets[0].pointBackgroundColor = colors;
+  visitorChart.data.datasets[0].pointBorderColor = colors;
+  visitorChart.update('none');
+
+  // Peak banner
+  const peak = Math.max(...data);
+  const peakIdx = data.lastIndexOf(peak);
+  const peakTime = labels[peakIdx];
+  const banner = document.getElementById('peakBanner');
+  const peakText = document.getElementById('peakText');
+  if (data.length > 2) {
+    banner.classList.remove('hidden');
+    peakText.innerHTML = `Peak: <b>${peak.toLocaleString()} visitors</b> at ${peakTime}`;
+  }
+
+  // Range label
+  if (labels.length > 1) {
+    document.getElementById('graphRangeLabel').textContent =
+      labels[0] + ' – ' + labels[labels.length-1];
+  }
+}
+
+/* ─────────── STATE ─────────── */
+let state = {venueIdx:0, counts:[], routeLoads:[], alertLog:[], running:true, speed:2, tick:0};
+let maps   = {overview:null, routes:null};
+let layers = {overview:[], routes:[]};
+
+function initState(vIdx) {
+  const v = VENUES[vIdx];
+  state.counts     = v.zones.map(z  => Math.floor(z.cap  * 0.3));
+  state.routeLoads = v.routes.map(r => r.load + (Math.random()-0.5)*10);
+}
+
+/* ─────────── COLOUR HELPERS ─────────── */
+function densityColor(d) {
+  if (d>4) return '#111111';
+  if (d>2) return '#ef4444';
+  if (d>1) return '#f59e0b';
+  return '#22c55e';
+}
+function routeColor(l)  { return l>70?'#ef4444':l>45?'#f59e0b':'#22c55e'; }
+function routeWeight(l) { return l>70?7:l>45?5:4; }
+
+/* ─────────── COMPASS BEARING ─────────── */
+function compassBearing(coords) {
+  const s=coords[0], e=coords[coords.length-1];
+  const ang=Math.atan2(e[1]-s[1],e[0]-s[0])*180/Math.PI;
+  const dirs=[
+    {min:-22.5, max:22.5,  label:'North',      short:'N',  arrow:'↑',color:'#3b82f6'},
+    {min:22.5,  max:67.5,  label:'North-East',  short:'NE', arrow:'↗',color:'#8b5cf6'},
+    {min:67.5,  max:112.5, label:'East',        short:'E',  arrow:'→',color:'#f59e0b'},
+    {min:112.5, max:157.5, label:'South-East',  short:'SE', arrow:'↘',color:'#ec4899'},
+    {min:157.5, max:180,   label:'South',       short:'S',  arrow:'↓',color:'#ef4444'},
+    {min:-180,  max:-157.5,label:'South',       short:'S',  arrow:'↓',color:'#ef4444'},
+    {min:-157.5,max:-112.5,label:'South-West',  short:'SW', arrow:'↙',color:'#d97706'},
+    {min:-112.5,max:-67.5, label:'West',        short:'W',  arrow:'←',color:'#10b981'},
+    {min:-67.5, max:-22.5, label:'North-West',  short:'NW', arrow:'↖',color:'#6366f1'},
+  ];
+  return dirs.find(d=>ang>=d.min&&ang<d.max)||dirs[0];
+}
+
+/* ─────────── MAP DRAWING ─────────── */
+function clearLayers(key,m) {
+  (layers[key]||[]).forEach(l=>{try{m.removeLayer(l);}catch(e){}});
+  layers[key]=[];
+}
+
+function drawZones(m,key,vIdx) {
+  clearLayers(key,m);
+  const v=VENUES[vIdx];
+  v.zones.forEach((z,i)=>{
+    const cnt=state.counts[i]||0;
+    const area=Math.PI*z.r*z.r/10000;
+    const dens=cnt/area;
+    const col=densityColor(dens);
+    const circle=L.circle([z.lat,z.lng],{radius:z.r,color:col,fillColor:col,fillOpacity:0.45,weight:2}).addTo(m);
+    circle.bindTooltip(`<b>${z.name}</b><br>${cnt.toLocaleString()} people<br>Density: ${dens.toFixed(2)} p/m²`,{permanent:false,direction:'top'});
+    const icon=L.divIcon({
+      html:`<div style="font-size:10px;font-weight:600;color:#fff;text-shadow:0 1px 4px rgba(0,0,0,.9);white-space:nowrap;text-align:center">${z.name}<br><span style="font-size:9px;opacity:.85">${cnt}</span></div>`,
+      className:'',iconAnchor:[32,22],iconSize:[64,22]
+    });
+    layers[key].push(circle,L.marker([z.lat,z.lng],{icon,interactive:false}).addTo(m));
+  });
+}
+
+function drawRoutes(m) {
+  clearLayers('routes',m);
+  const v=VENUES[state.venueIdx];
+  v.routes.forEach((r,i)=>{
+    const load=state.routeLoads[i]||r.load;
+    const col=routeColor(load), wt=routeWeight(load), bear=compassBearing(r.coords);
+    const line=L.polyline(r.coords,{color:col,weight:wt,opacity:0.92}).addTo(m);
+    layers.routes.push(line);
+    for (let j=0;j<r.coords.length-1;j++) {
+      const from=r.coords[j],to=r.coords[j+1];
+      const mLat=(from[0]+to[0])/2,mLng=(from[1]+to[1])/2;
+      const angle=Math.atan2(to[1]-from[1],to[0]-from[0])*180/Math.PI;
+      const aIcon=L.divIcon({html:`<div style="font-size:15px;color:${col};transform:rotate(${angle}deg);text-shadow:0 1px 3px rgba(0,0,0,.5);line-height:1">➤</div>`,className:'',iconAnchor:[8,8],iconSize:[16,16]});
+      layers.routes.push(L.marker([mLat,mLng],{icon:aIcon,interactive:false}).addTo(m));
+    }
+    const mid=r.coords[Math.floor(r.coords.length/2)];
+    const lIcon=L.divIcon({html:`<div style="background:${col};color:#fff;font-size:10px;font-weight:600;padding:2px 8px;border-radius:10px;white-space:nowrap;box-shadow:0 1px 5px rgba(0,0,0,.3);display:flex;align-items:center;gap:4px"><span>${bear.arrow}</span><span>${r.name}</span><span style="opacity:.8">· ${Math.round(load)}%</span></div>`,className:'',iconAnchor:[55,10],iconSize:[110,20]});
+    layers.routes.push(L.marker(mid,{icon:lIcon,interactive:false}).addTo(m));
+    const endPt=r.coords[r.coords.length-1];
+    const eIcon=L.divIcon({html:`<div style="background:#fff;border:2px solid ${col};color:${col};font-size:9px;font-weight:700;padding:1px 6px;border-radius:8px;white-space:nowrap;box-shadow:0 1px 4px rgba(0,0,0,.2)">${bear.short} end</div>`,className:'',iconAnchor:[22,8],iconSize:[44,16]});
+    layers.routes.push(L.marker(endPt,{icon:eIcon,interactive:false}).addTo(m));
+    const sIcon=L.divIcon({html:`<div style="width:10px;height:10px;background:${col};border:2px solid #fff;border-radius:50%;box-shadow:0 1px 4px rgba(0,0,0,.3)"></div>`,className:'',iconAnchor:[5,5],iconSize:[10,10]});
+    layers.routes.push(L.marker(r.coords[0],{icon:sIcon,interactive:false}).addTo(m));
+  });
+}
+
+function updateMaps() {
+  const vIdx=state.venueIdx;
+  if (maps.overview) drawZones(maps.overview,'overview',vIdx);
+  if (maps.routes)   {drawZones(maps.routes,'routes',vIdx);drawRoutes(maps.routes);}
+}
+
+function initMap(elId,vIdx,key) {
+  if (maps[key]){maps[key].remove();maps[key]=null;}
+  const v=VENUES[vIdx];
+  const m=L.map(elId,{zoomControl:true,attributionControl:true}).setView(v.center,v.zoom);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© <a href="https://openstreetmap.org">OpenStreetMap</a>'}).addTo(m);
+  maps[key]=m;
+  return m;
+}
+
+/* ─────────── UI RENDERS ─────────── */
+function updateMetrics() {
+  const v=VENUES[state.venueIdx];
+  const total=state.counts.reduce((a,b)=>a+b,0);
+  const totArea=v.zones.reduce((a,z)=>a+Math.PI*z.r*z.r/10000,0);
+  const avgDens=total/totArea;
+  document.getElementById('m-total').textContent   = total.toLocaleString();
+  document.getElementById('m-density').textContent = avgDens.toFixed(2);
+  const danger=v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>4);
+  const high  =v.zones.filter((z,i)=>state.counts[i]/(Math.PI*z.r*z.r/10000)>2);
+  document.getElementById('m-alerts').textContent    = state.alertLog.length;
+  document.getElementById('m-alert-lbl').textContent = danger.length?danger.length+' critical':'';
+  const rEl=document.getElementById('m-risk'),rSb=document.getElementById('m-risk-sub');
+  if (danger.length){rEl.textContent='Critical';rEl.style.color='#dc2626';rSb.textContent='Immediate action';rSb.style.color='#dc2626';}
+  else if (high.length){rEl.textContent='High';rEl.style.color='#d97706';rSb.textContent='Monitor closely';rSb.style.color='#d97706';}
+  else{rEl.textContent='Normal';rEl.style.color='#16a34a';rSb.textContent='All zones safe';rSb.style.color='#16a34a';}
+  updateVisitorChart(total);
+}
+
+function renderAlertFeed(elId,limit) {
+  const el=document.getElementById(elId);
+  if (!el) return;
+  const items=limit?state.alertLog.slice(-limit).reverse():[...state.alertLog].reverse();
+  el.innerHTML=items.map(a=>`<div class="alert-item"><span class="badge b${a.level[0]}">${a.level}</span><div><div class="at">${a.msg}</div><div class="atime">${a.time}</div></div></div>`).join('')
+    ||'<div style="font-size:12px;color:#999;padding:4px 0">No alerts yet.</div>';
+}
+
+function renderRouteSnap() {
+  const el=document.getElementById('routeSnap');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    return `<div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid #f0f0f0">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span style="font-size:12px;font-weight:500;color:#111;flex:1">${r.name}</span>
+      <span style="font-size:11px;padding:1px 6px;border-radius:10px;background:${bear.color}22;color:${bear.color};border:1px solid ${bear.color}55;font-weight:600">${bear.arrow} ${bear.short}</span>
+      <span style="font-size:11px;color:#888;min-width:30px;text-align:right">${load}%</span>
+    </div>`;
+  }).join('');
+}
+
+function renderRouteStatus() {
+  const el=document.getElementById('routeStatusList');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.routes.map((r,i)=>{
+    const load=Math.round(state.routeLoads[i]||r.load);
+    const col=routeColor(load),bear=compassBearing(r.coords);
+    const rec =load<50?'Recommended':load<70?'Use with care':'Avoid';
+    const recC=load<50?'#16a34a':load<70?'#d97706':'#dc2626';
+    return `<div class="route-row">
+      <div style="width:20px;height:4px;border-radius:2px;background:${col};flex-shrink:0"></div>
+      <span class="route-name">${r.name}</span>
+      <span class="route-dir" style="color:${bear.color};border-color:${bear.color}55;background:${bear.color}11">${bear.arrow} ${bear.label}</span>
+      <div class="route-bar-wrap"><div class="route-bar" style="width:${load}%;background:${col}"></div></div>
+      <span class="route-pct">${load}%</span>
+      <span class="route-rec" style="color:${recC}">${rec}</span>
+    </div>`;
+  }).join('');
+}
+
+function renderZoneTable() {
+  const el=document.getElementById('zoneTableBody');
+  if (!el) return;
+  const v=VENUES[state.venueIdx];
+  el.innerHTML=v.zones.map((z,i)=>{
+    const cnt=state.counts[i]||0,area=Math.PI*z.r*z.r/10000,dens=cnt/area;
+    const pct=Math.min(999,Math.round(cnt/z.cap*100));
+    let status,sc;
+    if(dens>4){status='Dangerous';sc='bd';}
+    else if(dens>2){status='High';sc='bw';}
+    else if(dens>1){status='Moderate';sc='bi';}
+    else{status='Normal';sc='bs';}
+    return `<tr>
+      <td><b>${z.name}</b></td><td>${cnt.toLocaleString()}</td><td>${dens.toFixed(2)}</td>
+      <td><div style="display:flex;align-items:center;gap:7px">
+        <div style="flex:1;height:5px;background:#f0f0f0;border-radius:3px;overflow:hidden;max-width:80px">
+          <div style="width:${Math.min(100,pct)}%;height:100%;background:${densityColor(dens)};border-radius:3px"></div>
+        </div>${pct}%</div></td>
+      <td><span class="dp ${sc}">${status}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ─────────── TAB / VENUE SWITCHING ─────────── */
+const ALL_TABS = ['overview','learn','routes','alerts','zones'];
+
+function switchTab(name,el) {
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  ALL_TABS.forEach(t=>document.getElementById('tab-'+t).classList.toggle('hidden',t!==name));
+  const vIdx=state.venueIdx;
+  if (name==='routes'&&!maps.routes) {
+    setTimeout(()=>{
+      document.getElementById('routeMapWrap').innerHTML='<div id="route-map" style="height:380px"></div>';
+      initMap('route-map',vIdx,'routes');
+      drawZones(maps.routes,'routes',vIdx);
+      drawRoutes(maps.routes);
+    },60);
+  }
+  if (name==='routes') setTimeout(()=>maps.routes&&maps.routes.invalidateSize(),120);
+}
+
+function switchVenue(vIdx) {
+  state.venueIdx=parseInt(vIdx);
+  initState(state.venueIdx);
+  visitorHistory=[]; tickCount=0;
+  if (visitorChart){visitorChart.data.labels=[];visitorChart.data.datasets[0].data=[];visitorChart.data.datasets[0].pointBackgroundColor=[];visitorChart.update('none');document.getElementById('peakBanner').classList.add('hidden');}
+  const v=VENUES[state.venueIdx];
+  ['overview','routes'].forEach(k=>{if(maps[k]) maps[k].setView(v.center,v.zoom);});
+  if (maps.routes){maps.routes.remove();maps.routes=null;layers.routes=[];}
+  updateMaps();
+}
+
+/* ─────────── SIMULATION ─────────── */
+function toggleSim() {
+  state.running=!state.running;
+  document.getElementById('simToggle').textContent    =state.running?'Pause':'Resume';
+  document.getElementById('liveDot').style.background =state.running?'#22c55e':'#aaa';
+}
+
+function tick() {
+  state.tick++;
+  const v=VENUES[state.venueIdx];
+  v.zones.forEach((z,i)=>{
+    const delta=Math.floor((Math.random()-0.42)*28*state.speed);
+    state.counts[i]=Math.max(5,Math.min(Math.floor(z.cap*1.05),(state.counts[i]||0)+delta));
+  });
+  v.routes.forEach((r,i)=>{
+    state.routeLoads[i]=Math.max(5,Math.min(100,(state.routeLoads[i]||r.load)+(Math.random()-0.45)*7*state.speed));
+  });
+  if (state.tick%7===0) {
+    const t=ALERT_TEMPLATES[Math.floor(Math.random()*ALERT_TEMPLATES.length)];
+    state.alertLog.push({...t,time:new Date().toLocaleTimeString('en-IN')});
+    if (state.alertLog.length>80) state.alertLog.shift();
+  }
+  updateMetrics(); updateMaps();
+  renderAlertFeed('alertFeed',4); renderAlertFeed('allAlertFeed',0);
+  renderRouteSnap(); renderRouteStatus(); renderZoneTable();
+}
+
+function updateClock() {
+  const el=document.getElementById('clockEl');
+  if (el) el.textContent=new Date().toLocaleTimeString('en-IN');
+}
+
+function runLoop() {
+  if (state.running) tick();
+  updateClock();
+  setTimeout(runLoop,1200/Math.max(1,state.speed));
+}
+
+/* ─────────── BOOT ─────────── */
+initState(0);
+renderWeather();
+setTimeout(()=>{
+  initVisitorChart();
+  initMap('map',0,'overview');
+  drawZones(maps.overview,'overview',0);
+  runLoop();
+},300);
+
+/* ═══════════════════════════════════════════════════════
+   LEARN TAB — Crowd Safety Awareness Module
+═══════════════════════════════════════════════════════ */
+
+/* ── Data ── */
+const LEARN_LANG = {
+  en: {
+    envTitle: 'Choose Your Environment',
+    tipsTitle: 'Essential Safety Tips',
+    correct: '✅ Correct!',
+    incorrect: '❌ Not quite right',
+    next: 'Next scenario →',
+    finish: 'See your results →',
+    scenNum: (c,t) => `Scenario ${c} of ${t}`,
+    progPct: (d,t) => `${d} / ${t} scenarios`,
+  },
+  kn: {
+    envTitle: 'ನಿಮ್ಮ ಪರಿಸರವನ್ನು ಆರಿಸಿ',
+    tipsTitle: 'ಅಗತ್ಯ ಸುರಕ್ಷತಾ ಸಲಹೆಗಳು',
+    correct: '✅ ಸರಿಯಾಗಿದೆ!',
+    incorrect: '❌ ಸರಿಯಿಲ್ಲ',
+    next: 'ಮುಂದಿನ ಸನ್ನಿವೇಶ →',
+    finish: 'ಫಲಿತಾಂಶ ನೋಡಿ →',
+    scenNum: (c,t) => `ಸನ್ನಿವೇಶ ${c} / ${t}`,
+    progPct: (d,t) => `${d} / ${t} ಸನ್ನಿವೇಶಗಳು`,
+  },
+  hi: {
+    envTitle: 'अपना परिवेश चुनें',
+    tipsTitle: 'ज़रूरी सुरक्षा सुझाव',
+    correct: '✅ सही!',
+    incorrect: '❌ गलत जवाब',
+    next: 'अगला परिदृश्य →',
+    finish: 'परिणाम देखें →',
+    scenNum: (c,t) => `परिदृश्य ${c} / ${t}`,
+    progPct: (d,t) => `${d} / ${t} परिदृश्य`,
+  }
+};
+
+const ENVIRONMENTS = [
+  { id:'temple',  icon:'🛕', label:{en:'Temple',kn:'ದೇವಸ್ಥಾನ',hi:'मंदिर'}, sub:{en:'Religious gatherings',kn:'ಧಾರ್ಮಿಕ ಜಮಾವಣೆ',hi:'धार्मिक आयोजन'}, color:'#f59e0b', bg:'#fef9c3' },
+  { id:'railway', icon:'🚉', label:{en:'Railway Station',kn:'ರೈಲು ನಿಲ್ದಾಣ',hi:'रेलवे स्टेशन'}, sub:{en:'Transit crowds',kn:'ಸಾರಿಗೆ ಜನಸಮೂಹ',hi:'परिवहन भीड़'}, color:'#2563eb', bg:'#eff6ff' },
+  { id:'festival', icon:'🎉', label:{en:'Festival',kn:'ಹಬ್ಬ',hi:'त्योहार'}, sub:{en:'Outdoor events',kn:'ಬಯಲು ಕಾರ್ಯಕ್ರಮ',hi:'खुले मैदान कार्यक्रम'}, color:'#7c3aed', bg:'#f5f3ff' },
+  { id:'stadium',  icon:'🏟', label:{en:'Stadium',kn:'ಕ್ರೀಡಾಂಗಣ',hi:'स्टेडियम'}, sub:{en:'Sporting events',kn:'ಕ್ರೀಡಾ ಕಾರ್ಯಕ್ರಮ',hi:'खेल आयोजन'}, color:'#dc2626', bg:'#fef2f2' },
+  { id:'mall',     icon:'🏬', label:{en:'Shopping Mall',kn:'ಶಾಪಿಂಗ್ ಮಾಲ್',hi:'शॉपिंग मॉल'}, sub:{en:'Retail spaces',kn:'ಚಿಲ್ಲರೆ ವ್ಯಾಪಾರ',hi:'खुदरा दुकानें'}, color:'#0891b2', bg:'#ecfeff' },
+];
+
+const SCENARIOS = {
+  temple: [
+    {
+      illus:'🛕', bg:'#fef9c3', tagColor:'#92400e', tagBg:'#fde68a',
+      tag:{en:'Crowd Movement',kn:'ಜನಸಮೂಹ ಚಲನೆ',hi:'भीड़ की गतिविधि'},
+      q:{en:'The main sanctum is extremely crowded. What should you do?',kn:'ಮುಖ್ಯ ಗರ್ಭಗುಡಿ ತುಂಬಾ ಜನಜಂಗುಳಿಯಾಗಿದೆ. ನೀವು ಏನು ಮಾಡಬೇಕು?',hi:'मुख्य गर्भगृह बहुत भीड़ भरा है। आप क्या करेंगे?'},
+      ctx:{en:'Density: 5+ people/m² detected near main idol area.',kn:'ಸಾಂದ್ರತೆ: ಮುಖ್ಯ ವಿಗ್ರಹ ಪ್ರದೇಶದಲ್ಲಿ 5+ ಜನರು/m² ಪತ್ತೆಯಾಗಿದೆ.',hi:'घनत्व: मुख्य मूर्ति क्षेत्र के पास 5+ लोग/m² पाए गए।'},
+      opts:[
+        {en:'Push forward to reach the front quickly',kn:'ಮುಂದೆ ತಳ್ಳಿ ಬೇಗ ಮುಂದಕ್ಕೆ ಹೋಗಿ',hi:'जल्दी आगे जाने के लिए धक्का दें', correct:false, badge:{en:'Dangerous',kn:'ಅಪಾಯಕಾರಿ',hi:'खतरनाक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Wait in the queue and move with the flow',kn:'ಸರತಿಯಲ್ಲಿ ನಿರೀಕ್ಷಿಸಿ ಮತ್ತು ಹರಿವಿನೊಂದಿಗೆ ಚಲಿಸಿ',hi:'कतार में प्रतीक्षा करें और भीड़ के साथ चलें', correct:true, badge:{en:'Safe',kn:'ಸುರಕ್ಷಿತ',hi:'सुरक्षित'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Turn back and visit a less crowded area first',kn:'ಹಿಂತಿರುಗಿ ಮೊದಲು ಕಡಿಮೆ ಜನಜಂಗುಳಿ ಇರುವ ಪ್ರದೇಶಕ್ಕೆ ಹೋಗಿ',hi:'वापस जाएं और पहले कम भीड़ वाली जगह जाएं', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+        {en:'Shout at others to make way',kn:'ದಾರಿ ಮಾಡಿಕೊಡಲು ಇತರರನ್ನು ಕೂಗಿ',hi:'दूसरों पर चिल्लाएं रास्ता बनाने के लिए', correct:false, badge:{en:'Panic',kn:'ಭಯ',hi:'घबराहट'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+      ],
+      fb:{
+        correct:{en:'Waiting and moving with the crowd flow is the safest approach. Pushing causes dangerous compression waves that can lead to stampedes.',kn:'ಜನಸಮೂಹದ ಹರಿವಿನೊಂದಿಗೆ ನಿರೀಕ್ಷಿಸಿ ಚಲಿಸುವುದು ಅತ್ಯಂತ ಸುರಕ್ಷಿತ ವಿಧಾನ.',hi:'भीड़ के साथ प्रतीक्षा करना और चलना सबसे सुरक्षित तरीका है। धक्का देने से खतरनाक लहरें उत्पन्न होती हैं।'},
+        incorrect:{en:'Pushing or shouting in dense crowds causes panic and compression waves — a leading cause of stampede injuries.',kn:'ದಟ್ಟ ಜನಸಮೂಹದಲ್ಲಿ ತಳ್ಳುವುದು ಅಥವಾ ಕೂಗುವುದು ಭಯ ಮತ್ತು ಒತ್ತಡ ತರಂಗಗಳನ್ನು ಉಂಟುಮಾಡುತ್ತದೆ.',hi:'घनी भीड़ में धक्का देना या चिल्लाना घबराहट और दबाव की लहरें पैदा करता है।'},
+      }
+    },
+    {
+      illus:'🚨', bg:'#fef2f2', tagColor:'#991b1b', tagBg:'#fee2e2',
+      tag:{en:'Emergency',kn:'ತುರ್ತುಪರಿಸ್ಥಿತಿ',hi:'आपातकाल'},
+      q:{en:'The emergency alarm sounds in the temple. What is the FIRST thing to do?',kn:'ದೇವಸ್ಥಾನದಲ್ಲಿ ತುರ್ತು ಅಲಾರಂ ಧ್ವನಿಸುತ್ತದೆ. ಮೊದಲ ಕೆಲಸ ಏನು?',hi:'मंदिर में आपातकालीन अलार्म बजता है। सबसे पहले क्या करें?'},
+      ctx:{en:'You are near the main entrance. Several exits are visible.',kn:'ನೀವು ಮುಖ್ಯ ಪ್ರವೇಶದ್ವಾರದ ಬಳಿ ಇದ್ದೀರಿ. ಹಲವು ನಿರ್ಗಮನ ದ್ವಾರಗಳು ಗೋಚರಿಸುತ್ತವೆ.',hi:'आप मुख्य प्रवेश द्वार के पास हैं। कई निकास द्वार दिखाई दे रहे हैं।'},
+      opts:[
+        {en:'Run immediately to the nearest exit',kn:'ತಕ್ಷಣ ಹತ್ತಿರದ ನಿರ್ಗಮನಕ್ಕೆ ಓಡಿ',hi:'तुरंत निकटतम निकास की ओर दौड़ें', correct:false, badge:{en:'Risky',kn:'ಅಪಾಯ',hi:'जोखिम भरा'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+        {en:'Stay calm, look for official evacuation signs and staff',kn:'ಶಾಂತವಾಗಿರಿ, ಅಧಿಕೃತ ಸ್ಥಳಾಂತರ ಸಂಕೇತಗಳು ಮತ್ತು ಸಿಬ್ಬಂದಿಯನ್ನು ಹುಡುಕಿ',hi:'शांत रहें, आधिकारिक निकासी संकेत और कर्मचारी खोजें', correct:true, badge:{en:'Best',kn:'ಉತ್ತಮ',hi:'सर्वश्रेष्ठ'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Take photos and videos first',kn:'ಮೊದಲು ಫೋಟೋ ಮತ್ತು ವಿಡಿಯೋ ತೆಗೆಯಿರಿ',hi:'पहले फोटो और वीडियो लें', correct:false, badge:{en:'Harmful',kn:'ಹಾನಿಕಾರಕ',hi:'हानिकारक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Wait for everyone else to leave first',kn:'ಎಲ್ಲರೂ ಹೊರಟ ನಂತರ ಕಾಯಿರಿ',hi:'सभी के जाने के बाद प्रतीक्षा करें', correct:false, badge:{en:'Dangerous',kn:'ಅಪಾಯ',hi:'खतरनाक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+      ],
+      fb:{
+        correct:{en:'Staying calm and following official signs is critical. Running creates panic. Staff are trained to guide you to the safest exit.',kn:'ಶಾಂತವಾಗಿದ್ದು ಅಧಿಕೃತ ಸಂಕೇತಗಳನ್ನು ಅನುಸರಿಸುವುದು ಮುಖ್ಯ. ಸಿಬ್ಬಂದಿ ನಿಮ್ಮನ್ನು ಮಾರ್ಗದರ್ಶನ ಮಾಡಲು ತರಬೇತಿ ಪಡೆದಿದ್ದಾರೆ.',hi:'शांत रहना और आधिकारिक संकेतों का पालन करना महत्वपूर्ण है। कर्मचारी आपको सुरक्षित निकास की ओर मार्गदर्शन करने के लिए प्रशिक्षित हैं।'},
+        incorrect:{en:'Running causes chain reactions and falls. Never delay evacuation by recording. Always follow staff instructions.',kn:'ಓಡುವುದು ಸರಣಿ ಪ್ರತಿಕ್ರಿಯೆ ಮತ್ತು ಬಿದ್ದು ಬೀಳುವಿಕೆ ಉಂಟುಮಾಡುತ್ತದೆ.',hi:'दौड़ने से श्रृंखला प्रतिक्रियाएं और गिरावट होती है। कभी भी रिकॉर्डिंग से निकासी में देरी न करें।'},
+      }
+    },
+    {
+      illus:'👨‍👩‍👧', bg:'#f0fdf4', tagColor:'#166534', tagBg:'#dcfce7',
+      tag:{en:'Group Safety',kn:'ಗುಂಪು ಸುರಕ್ಷತೆ',hi:'समूह सुरक्षा'},
+      q:{en:'You are visiting a busy temple with elderly relatives. The crowd is getting denser. What is the best strategy?',kn:'ನೀವು ವೃದ್ಧ ಸಂಬಂಧಿಕರೊಂದಿಗೆ ಜನನಿಬಿಡ ದೇವಸ್ಥಾನಕ್ಕೆ ಭೇಟಿ ನೀಡಿದ್ದೀರಿ.',hi:'आप बुजुर्ग रिश्तेदारों के साथ व्यस्त मंदिर जा रहे हैं।'},
+      ctx:{en:'Your group has 6 people including 2 seniors and a child.',kn:'ನಿಮ್ಮ ಗುಂಪಿನಲ್ಲಿ 2 ಹಿರಿಯರು ಮತ್ತು 1 ಮಗು ಸೇರಿದಂತೆ 6 ಜನರಿದ್ದಾರೆ.',hi:'आपके समूह में 2 बुजुर्ग और 1 बच्चे सहित 6 लोग हैं।'},
+      opts:[
+        {en:'Separate and meet at the exit to move faster',kn:'ಬೇಗ ಚಲಿಸಲು ಬೇರ್ಪಟ್ಟು ನಿರ್ಗಮನದಲ್ಲಿ ಭೇಟಿ ಮಾಡಿ',hi:'जल्दी चलने के लिए अलग हों और निकास पर मिलें', correct:false, badge:{en:'Risky',kn:'ಅಪಾಯ',hi:'जोखिम'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+        {en:'Stay together, keep vulnerable members in the middle',kn:'ಒಟ್ಟಿಗೆ ಇರಿ, ದುರ್ಬಲ ಸದಸ್ಯರನ್ನು ಮಧ್ಯದಲ್ಲಿ ಇರಿಸಿ',hi:'एक साथ रहें, कमजोर सदस्यों को बीच में रखें', correct:true, badge:{en:'Best',kn:'ಉತ್ತಮ',hi:'सर्वश्रेष्ठ'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Ask the eldest person to lead the group',kn:'ಹಿರಿಯ ವ್ಯಕ್ತಿಯನ್ನು ಗುಂಪನ್ನು ಮುನ್ನಡೆಸಲು ಕೇಳಿ',hi:'सबसे बुजुर्ग व्यक्ति को समूह का नेतृत्व करने के लिए कहें', correct:false, badge:{en:'Unsafe',kn:'ಅಸುರಕ್ಷಿತ',hi:'असुरक्षित'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Avoid the visit and reschedule for off-peak hours',kn:'ಭೇಟಿ ತಪ್ಪಿಸಿ ಮತ್ತು ಕಡಿಮೆ ಒತ್ತಡದ ಸಮಯಕ್ಕೆ ಮರುನಿಗದಿ ಮಾಡಿ',hi:'यात्रा टालें और कम भीड़ वाले समय के लिए पुनर्निर्धारित करें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+      ],
+      fb:{
+        correct:{en:'Keeping groups together with vulnerable members protected in the centre is the safest formation. Off-peak visits are also an excellent preventive choice.',kn:'ಗುಂಪನ್ನು ಒಟ್ಟಿಗೆ ಇಟ್ಟು ದುರ್ಬಲ ಸದಸ್ಯರನ್ನು ರಕ್ಷಿಸುವುದು ಅತ್ಯಂತ ಸುರಕ್ಷಿತ ರಚನೆ.',hi:'दुर्बल सदस्यों को केंद्र में रखकर एक साथ रहना सबसे सुरक्षित तरीका है।'},
+        incorrect:{en:'Separating the group or letting elderly lead in a crowd significantly increases risk of loss and injury.',kn:'ಗುಂಪನ್ನು ಬೇರ್ಪಡಿಸುವುದು ಅಥವಾ ಹಿರಿಯರನ್ನು ಮುನ್ನಡೆಸಲು ಬಿಡುವುದು ಅಪಾಯವನ್ನು ಹೆಚ್ಚಿಸುತ್ತದೆ.',hi:'समूह को अलग करना या बुजुर्गों को भीड़ में नेतृत्व करने देना खतरे को काफी बढ़ाता है।'},
+      }
+    }
+  ],
+  railway: [
+    {
+      illus:'🚆', bg:'#eff6ff', tagColor:'#1e40af', tagBg:'#dbeafe',
+      tag:{en:'Platform Safety',kn:'ಪ್ಲಾಟ್‌ಫಾರ್ಮ್ ಸುರಕ್ಷತೆ',hi:'प्लेटफ़ॉर्म सुरक्षा'},
+      q:{en:'The platform is overcrowded before train arrival. Where should you stand?',kn:'ರೈಲು ಆಗಮನಕ್ಕೆ ಮೊದಲು ಪ್ಲಾಟ್‌ಫಾರ್ಮ್ ತುಂಬಿ ತುಳುಕುತ್ತಿದೆ. ನೀವು ಎಲ್ಲಿ ನಿಲ್ಲಬೇಕು?',hi:'ट्रेन आने से पहले प्लेटफॉर्म भीड़ भरा है। आपको कहाँ खड़े होना चाहिए?'},
+      ctx:{en:'500+ people on a platform designed for 300.',kn:'300 ಜನರಿಗಾಗಿ ವಿನ್ಯಾಸಗೊಳಿಸಿದ ಪ್ಲಾಟ್‌ಫಾರ್ಮ್‌ನಲ್ಲಿ 500+ ಜನರು.',hi:'300 लोगों के लिए बनाए गए प्लेटफॉर्म पर 500+ लोग हैं।'},
+      opts:[
+        {en:'Stand at the edge for easy boarding',kn:'ಸುಲಭ ಏರಿಕೆಗಾಗಿ ಅಂಚಿನಲ್ಲಿ ನಿಲ್ಲಿ',hi:'आसान चढ़ाई के लिए किनारे पर खड़े हों', correct:false, badge:{en:'Deadly',kn:'ಮಾರಣಾಂತಿಕ',hi:'घातक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Move behind the yellow safety line and wait',kn:'ಹಳದಿ ಸುರಕ್ಷತಾ ರೇಖೆಯ ಹಿಂದೆ ಹೋಗಿ ಕಾಯಿರಿ',hi:'पीली सुरक्षा रेखा के पीछे जाएं और प्रतीक्षा करें', correct:true, badge:{en:'Safe',kn:'ಸುರಕ್ಷಿತ',hi:'सुरक्षित'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Board from the track side to skip the crowd',kn:'ಜನಸಮೂಹ ತಪ್ಪಿಸಲು ಟ್ರ್ಯಾಕ್ ಬದಿಯಿಂದ ಹತ್ತಿ',hi:'भीड़ से बचने के लिए ट्रैक साइड से बोर्ड करें', correct:false, badge:{en:'Fatal',kn:'ಮಾರಕ',hi:'घातक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Wait for the next train on a less crowded platform',kn:'ಕಡಿಮೆ ಜನಜಂಗುಳಿ ಇರುವ ಪ್ಲಾಟ್‌ಫಾರ್ಮ್‌ನಲ್ಲಿ ಮುಂದಿನ ರೈಲಿಗಾಗಿ ಕಾಯಿರಿ',hi:'कम भीड़ वाले प्लेटफॉर्म पर अगली ट्रेन का इंतजार करें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+      ],
+      fb:{
+        correct:{en:'Always stay behind the yellow line — it exists to save lives. If a platform is dangerously full, waiting for the next train is a smart and safe choice.',kn:'ಯಾವಾಗಲೂ ಹಳದಿ ರೇಖೆಯ ಹಿಂದೆ ನಿಲ್ಲಿ.',hi:'हमेशा पीली रेखा के पीछे खड़े रहें — यह जीवन बचाने के लिए है।'},
+        incorrect:{en:'Standing at platform edge or boarding from the track side are the leading causes of railway fatalities.',kn:'ಪ್ಲಾಟ್‌ಫಾರ್ಮ್ ಅಂಚಿನಲ್ಲಿ ನಿಲ್ಲುವುದು ರೈಲ್ವೆ ಸಾವಿಗೆ ಪ್ರಮುಖ ಕಾರಣ.',hi:'प्लेटफॉर्म के किनारे पर खड़े होना रेलवे मृत्यु का प्रमुख कारण है।'},
+      }
+    },
+    {
+      illus:'🎒', bg:'#f0fdf4', tagColor:'#166534', tagBg:'#dcfce7',
+      tag:{en:'Personal Belongings',kn:'ವೈಯಕ್ತಿಕ ವಸ್ತುಗಳು',hi:'निजी सामान'},
+      q:{en:'In a crowded train compartment, how should you manage your luggage?',kn:'ತುಂಬಿದ ರೈಲು ಡಬ್ಬಿಯಲ್ಲಿ ನಿಮ್ಮ ಸಾಮಾನನ್ನು ಹೇಗೆ ನಿರ್ವಹಿಸಬೇಕು?',hi:'भीड़ भरे ट्रेन के डिब्बे में अपना सामान कैसे संभालें?'},
+      ctx:{en:'You have one large bag and a backpack. The aisle is completely blocked.',kn:'ನಿಮ್ಮ ಬಳಿ ಒಂದು ದೊಡ್ಡ ಚೀಲ ಮತ್ತು ಒಂದು ಬ್ಯಾಕ್‌ಪ್ಯಾಕ್ ಇದೆ.',hi:'आपके पास एक बड़ा बैग और एक बैकपैक है। गलियारा पूरी तरह अवरुद्ध है।'},
+      opts:[
+        {en:'Place large bag in the aisle for easy access',kn:'ಸುಲಭ ಪ್ರವೇಶಕ್ಕಾಗಿ ದೊಡ್ಡ ಚೀಲವನ್ನು ಹಾದಿಯಲ್ಲಿ ಇರಿಸಿ',hi:'आसान पहुंच के लिए बड़ा बैग गलियारे में रखें', correct:false, badge:{en:'Blocks Exit',kn:'ನಿರ್ಗಮನ ತಡೆ',hi:'निकास अवरुद्ध'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Stow large bag in overhead rack, keep backpack in front',kn:'ದೊಡ್ಡ ಚೀಲವನ್ನು ಮೇಲ್ಭಾಗದ ರ್ಯಾಕ್‌ನಲ್ಲಿ ಇರಿಸಿ, ಬ್ಯಾಕ್‌ಪ್ಯಾಕ್ ಅನ್ನು ಮುಂದೆ ಇಟ್ಟುಕೊಳ್ಳಿ',hi:'बड़े बैग को ऊपरी रैक में रखें, बैकपैक आगे रखें', correct:true, badge:{en:'Safe',kn:'ಸುರಕ್ಷಿತ',hi:'सुरक्षित'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Hold both bags tightly against chest',kn:'ಎರಡೂ ಚೀಲಗಳನ್ನು ಎದೆಗೆ ಬಿಗಿಯಾಗಿ ಹಿಡಿದುಕೊಳ್ಳಿ',hi:'दोनों बैग को सीने के पास कसकर पकड़ें', correct:false, badge:{en:'Blocks Others',kn:'ಇತರರನ್ನು ತಡೆ',hi:'दूसरों को अवरोध'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+        {en:'Get off at next stop if it is too crowded',kn:'ತುಂಬಾ ಜನಜಂಗುಳಿ ಇದ್ದರೆ ಮುಂದಿನ ನಿಲ್ದಾಣದಲ್ಲಿ ಇಳಿಯಿರಿ',hi:'बहुत भीड़ होने पर अगले स्टेशन पर उतरें', correct:true, badge:{en:'Wise',kn:'ಬುದ್ಧಿವಂತ',hi:'बुद्धिमान'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+      ],
+      fb:{
+        correct:{en:'Overhead storage keeps aisles clear — essential for emergency evacuation. Getting off at the next stop is a wise choice when conditions are unsafe.',kn:'ಮೇಲ್ಭಾಗದ ಸಂಗ್ರಹಣೆ ಹಾದಿಗಳನ್ನು ಸ್ಪಷ್ಟವಾಗಿ ಇಡುತ್ತದೆ.',hi:'ओवरहेड स्टोरेज गलियारों को साफ रखता है — आपातकालीन निकासी के लिए आवश्यक।'},
+        incorrect:{en:'Luggage in aisles is a major hazard — it trips people and blocks evacuation routes during emergencies.',kn:'ಹಾದಿಯಲ್ಲಿ ಸಾಮಾನು ಒಂದು ಪ್ರಮುಖ ಅಪಾಯ.',hi:'गलियारे में सामान एक प्रमुख खतरा है — यह आपातकाल के दौरान निकासी मार्गों को अवरुद्ध करता है।'},
+      }
+    }
+  ],
+  festival: [
+    {
+      illus:'🎆', bg:'#f5f3ff', tagColor:'#5b21b6', tagBg:'#ede9fe',
+      tag:{en:'Situational Awareness',kn:'ಪರಿಸ್ಥಿತಿ ಅರಿವು',hi:'परिस्थितिजन्य जागरूकता'},
+      q:{en:'You feel strong crowd pressure from behind at a festival. What should you do?',kn:'ಹಬ್ಬದಲ್ಲಿ ಹಿಂದಿನಿಂದ ತೀವ್ರ ಜನಸಮೂಹ ಒತ್ತಡ ಅನುಭವಿಸುತ್ತೀರಿ. ನೀವು ಏನು ಮಾಡಬೇಕು?',hi:'एक त्योहार में आप पीछे से भीड़ का तेज दबाव महसूस करते हैं।'},
+      ctx:{en:'This is an early warning sign of dangerous crowd compression.',kn:'ಇದು ಅಪಾಯಕಾರಿ ಜನಸಮೂಹ ಸಂಕೋಚನದ ಆರಂಭಿಕ ಎಚ್ಚರಿಕೆ ಸಂಕೇತ.',hi:'यह खतरनाक भीड़ संपीड़न का प्रारंभिक चेतावनी संकेत है।'},
+      opts:[
+        {en:'Hold your ground and push back firmly',kn:'ನಿಮ್ಮ ಸ್ಥಾನ ಹಿಡಿದುಕೊಂಡು ದೃಢವಾಗಿ ಹಿಂದಕ್ಕೆ ತಳ್ಳಿ',hi:'अपनी जगह पकड़ें और मजबूती से पीछे धकेलें', correct:false, badge:{en:'Escalates',kn:'ಉಲ್ಬಣ',hi:'बढ़ाता है'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Move diagonally toward the edge of the crowd',kn:'ಜನಸಮೂಹದ ಅಂಚಿನ ಕಡೆ ಓರೆಯಾಗಿ ಚಲಿಸಿ',hi:'भीड़ के किनारे की ओर तिरछे चलें', correct:true, badge:{en:'Correct',kn:'ಸರಿಯಾದ',hi:'सही'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Sit down on the ground to reduce pressure',kn:'ಒತ್ತಡ ಕಡಿಮೆ ಮಾಡಲು ನೆಲದ ಮೇಲೆ ಕುಳಿತುಕೊಳ್ಳಿ',hi:'दबाव कम करने के लिए जमीन पर बैठ जाएं', correct:false, badge:{en:'Dangerous',kn:'ಅಪಾಯ',hi:'खतरनाक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Raise your arms to protect your chest and breathe steadily',kn:'ಎದೆಯನ್ನು ರಕ್ಷಿಸಲು ತೋಳುಗಳನ್ನು ಮೇಲೆ ತ್ತೋರಿ ಮತ್ತು ಸ್ಥಿರವಾಗಿ ಉಸಿರಾಡಿ',hi:'छाती की रक्षा के लिए बाहें उठाएं और स्थिरता से सांस लें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+      ],
+      fb:{
+        correct:{en:'Moving diagonally to the crowd edge reduces compression. Raising your arms creates breathing space and protects your chest from being crushed.',kn:'ಜನಸಮೂಹದ ಅಂಚಿಗೆ ಓರೆಯಾಗಿ ಚಲಿಸುವುದು ಸಂಕೋಚನ ಕಡಿಮೆ ಮಾಡುತ್ತದೆ.',hi:'भीड़ के किनारे की ओर तिरछे चलने से दबाव कम होता है। बाहें उठाने से सांस लेने की जगह बनती है।'},
+        incorrect:{en:'Never sit down in crowd pressure — you can be trampled. Pushing back escalates wave effects.',kn:'ಜನಸಮೂಹ ಒತ್ತಡದಲ್ಲಿ ಎಂದಿಗೂ ಕುಳಿತುಕೊಳ್ಳಬೇಡಿ.',hi:'भीड़ के दबाव में कभी न बैठें — आपको रौंदा जा सकता है।'},
+      }
+    },
+    {
+      illus:'🌙', bg:'#fef9c3', tagColor:'#92400e', tagBg:'#fde68a',
+      tag:{en:'Night Safety',kn:'ರಾತ್ರಿ ಸುರಕ್ಷತೆ',hi:'रात्रि सुरक्षा'},
+      q:{en:'At a crowded night festival, what are the most important safety preparations?',kn:'ರಾತ್ರಿ ಹಬ್ಬದಲ್ಲಿ ಅತ್ಯಂತ ಮುಖ್ಯ ಸುರಕ್ಷತಾ ಸಿದ್ಧತೆಗಳು ಯಾವುವು?',hi:'भीड़ भरे रात्रि उत्सव में सबसे महत्वपूर्ण सुरक्षा तैयारियां क्या हैं?'},
+      ctx:{en:'Low visibility, loud music, and 10,000+ attendees expected.',kn:'ಕಡಿಮೆ ಗೋಚರತೆ, ಜೋರಾದ ಸಂಗೀತ ಮತ್ತು 10,000+ ಹಾಜರಾತಿ ನಿರೀಕ್ಷಿತ.',hi:'कम दृश्यता, तेज़ संगीत और 10,000+ उपस्थित लोगों की उम्मीद।'},
+      opts:[
+        {en:'Identify all exit routes before the event begins',kn:'ಕಾರ್ಯಕ್ರಮ ಪ್ರಾರಂಭವಾಗುವ ಮೊದಲು ಎಲ್ಲಾ ನಿರ್ಗಮನ ಮಾರ್ಗಗಳನ್ನು ಗುರುತಿಸಿ',hi:'कार्यक्रम शुरू होने से पहले सभी निकास मार्गों की पहचान करें', correct:true, badge:{en:'Essential',kn:'ಅಗತ್ಯ',hi:'आवश्यक'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Set a meeting point with your group in case you separate',kn:'ಬೇರ್ಪಟ್ಟಲ್ಲಿ ನಿಮ್ಮ ಗುಂಪಿನೊಂದಿಗೆ ಭೇಟಿ ಸ್ಥಳ ನಿಗದಿಪಡಿಸಿ',hi:'अलग होने की स्थिति में अपने समूह के साथ मिलने का स्थान तय करें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+        {en:'Stay close to the stage for the best experience',kn:'ಅತ್ಯುತ್ತಮ ಅನುಭವಕ್ಕಾಗಿ ವೇದಿಕೆಗೆ ಹತ್ತಿರ ಉಳಿಯಿರಿ',hi:'सर्वोत्तम अनुभव के लिए मंच के पास रहें', correct:false, badge:{en:'Risky',kn:'ಅಪಾಯ',hi:'जोखिम'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+        {en:'Charge your phone fully and save emergency numbers',kn:'ಫೋನ್ ಸಂಪೂರ್ಣ ಚಾರ್ಜ್ ಮಾಡಿ ಮತ್ತು ತುರ್ತು ಸಂಖ್ಯೆಗಳನ್ನು ಉಳಿಸಿ',hi:'अपना फोन पूरी तरह चार्ज करें और आपातकालीन नंबर सेव करें', correct:true, badge:{en:'Prepared',kn:'ಸಿದ್ಧ',hi:'तैयार'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+      ],
+      fb:{
+        correct:{en:'Pre-event planning is critical: locate exits, agree on a meeting point, and keep your phone charged. These actions can save lives.',kn:'ಕಾರ್ಯಕ್ರಮಪೂರ್ವ ಯೋಜನೆ ನಿರ್ಣಾಯಕ: ನಿರ್ಗಮನಗಳನ್ನು ಗಮನಿಸಿ, ಭೇಟಿ ಸ್ಥಳ ನಿಗದಿಪಡಿಸಿ.',hi:'पूर्व-कार्यक्रम योजना महत्वपूर्ण है: निकास ढूंढें, मिलने का स्थान तय करें, फोन चार्ज रखें।'},
+        incorrect:{en:'Standing close to the stage means you are trapped in the densest area. Stage proximity is the highest-risk zone at festivals.',kn:'ವೇದಿಕೆಯ ಹತ್ತಿರ ನಿಲ್ಲುವುದು ನಿಮ್ಮನ್ನು ಅತ್ಯಂತ ಸಾಂದ್ರ ಪ್ರದೇಶದಲ್ಲಿ ತಡೆಯುತ್ತದೆ.',hi:'मंच के पास खड़े होने का मतलब है कि आप सबसे घने क्षेत्र में फंसे हैं।'},
+      }
+    }
+  ],
+  stadium: [
+    {
+      illus:'🏟', bg:'#fef2f2', tagColor:'#991b1b', tagBg:'#fee2e2',
+      tag:{en:'Entry & Exit',kn:'ಪ್ರವೇಶ ಮತ್ತು ನಿರ್ಗಮನ',hi:'प्रवेश और निकास'},
+      q:{en:'The match just ended. 50,000 fans are rushing to exit. What is the safest approach?',kn:'ಪಂದ್ಯ ಮುಗಿಯಿತು. 50,000 ಅಭಿಮಾನಿಗಳು ನಿರ್ಗಮನಕ್ಕೆ ನುಗ್ಗುತ್ತಿದ್ದಾರೆ. ಅತ್ಯಂತ ಸುರಕ್ಷಿತ ವಿಧಾನ ಯಾವುದು?',hi:'मैच अभी समाप्त हुआ। 50,000 प्रशंसक निकास की ओर दौड़ रहे हैं।'},
+      ctx:{en:'Main gates have 4 exits. Side gates are less crowded.',kn:'ಮುಖ್ಯ ದ್ವಾರಗಳಲ್ಲಿ 4 ನಿರ್ಗಮನಗಳಿವೆ. ಪಾರ್ಶ್ವ ದ್ವಾರಗಳು ಕಡಿಮೆ ಜನಜಂಗುಳಿ.',hi:'मुख्य द्वारों में 4 निकास हैं। साइड गेट कम भीड़ वाले हैं।'},
+      opts:[
+        {en:'Rush to the main exit with the crowd',kn:'ಜನಸಮೂಹದೊಂದಿಗೆ ಮುಖ್ಯ ನಿರ್ಗಮನಕ್ಕೆ ಧಾವಿಸಿ',hi:'भीड़ के साथ मुख्य निकास की ओर दौड़ें', correct:false, badge:{en:'Dangerous',kn:'ಅಪಾಯ',hi:'खतरनाक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Wait 15–20 minutes for the crowd to clear, then exit',kn:'ಜನಸಮೂಹ ಕ್ಲಿಯರ್ ಆಗಲು 15-20 ನಿಮಿಷ ಕಾಯಿರಿ, ನಂತರ ಹೊರಡಿ',hi:'भीड़ छंटने के लिए 15-20 मिनट प्रतीक्षा करें, फिर निकलें', correct:true, badge:{en:'Best',kn:'ಉತ್ತಮ',hi:'सर्वश्रेष्ठ'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Use the less crowded side gates',kn:'ಕಡಿಮೆ ಜನಜಂಗುಳಿ ಇರುವ ಪಾರ್ಶ್ವ ದ್ವಾರಗಳನ್ನು ಬಳಸಿ',hi:'कम भीड़ वाले साइड गेट का उपयोग करें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+        {en:'Climb over railings to find an alternative exit',kn:'ಪರ್ಯಾಯ ನಿರ್ಗಮನ ಹುಡುಕಲು ರೇಲಿಂಗ್ ಮೇಲೆ ಹತ್ತಿ',hi:'वैकल्पिक निकास खोजने के लिए रेलिंग पर चढ़ें', correct:false, badge:{en:'Fatal',kn:'ಮಾರಕ',hi:'घातक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+      ],
+      fb:{
+        correct:{en:'Waiting 15–20 minutes after a match for the crowd to thin out is the single best way to reduce exit risk. Using less crowded side exits is also excellent.',kn:'ಪಂದ್ಯದ ನಂತರ 15-20 ನಿಮಿಷ ಕಾಯುವುದು ನಿರ್ಗಮನ ಅಪಾಯ ಕಡಿಮೆ ಮಾಡುವ ಉತ್ತಮ ವಿಧಾನ.',hi:'मैच के बाद भीड़ कम होने के लिए 15-20 मिनट इंतजार करना निकास जोखिम को कम करने का सबसे अच्छा तरीका है।'},
+        incorrect:{en:'Rushing with the crowd creates dangerous bottlenecks at exits. Never climb railings — falls in crowded areas are fatal.',kn:'ಜನಸಮೂಹದೊಂದಿಗೆ ಧಾವಿಸುವುದು ನಿರ್ಗಮನಗಳಲ್ಲಿ ಅಪಾಯಕಾರಿ ಅಡ್ಡಿಗಳನ್ನು ಉಂಟುಮಾಡುತ್ತದೆ.',hi:'भीड़ के साथ दौड़ने से निकास पर खतरनाक बाधाएं पैदा होती हैं।'},
+      }
+    }
+  ],
+  mall: [
+    {
+      illus:'🏬', bg:'#ecfeff', tagColor:'#164e63', tagBg:'#cffafe',
+      tag:{en:'Fire Emergency',kn:'ಬೆಂಕಿ ತುರ್ತು',hi:'आग की आपात स्थिति'},
+      q:{en:'A fire alarm goes off in a busy mall. What should you do first?',kn:'ವ್ಯಸ್ತ ಮಾಲ್‌ನಲ್ಲಿ ಬೆಂಕಿ ಅಲಾರಂ ಹೊಡೆಯುತ್ತದೆ. ನೀವು ಮೊದಲು ಏನು ಮಾಡಬೇಕು?',hi:'व्यस्त मॉल में फायर अलार्म बजता है। आपको पहले क्या करना चाहिए?'},
+      ctx:{en:'You are on the 3rd floor. Fire exit signs are visible.',kn:'ನೀವು 3ನೇ ಮಹಡಿಯಲ್ಲಿದ್ದೀರಿ. ಬೆಂಕಿ ನಿರ್ಗಮನ ಚಿಹ್ನೆಗಳು ಗೋಚರಿಸುತ್ತವೆ.',hi:'आप तीसरी मंजिल पर हैं। अग्नि निकास संकेत दिखाई दे रहे हैं।'},
+      opts:[
+        {en:'Take the elevator — it is the fastest way down',kn:'ಎಲಿವೇಟರ್ ತೆಗೆದುಕೊಳ್ಳಿ — ಇದು ಕೆಳಗೆ ಹೋಗಲು ವೇಗವಾದ ಮಾರ್ಗ',hi:'लिफ्ट लें — यह नीचे जाने का सबसे तेज़ तरीका है', correct:false, badge:{en:'Fatal',kn:'ಮಾರಕ',hi:'घातक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Follow fire exit signs to the staircase, stay low',kn:'ಮೆಟ್ಟಿಲಿಗೆ ಬೆಂಕಿ ನಿರ್ಗಮನ ಚಿಹ್ನೆಗಳನ್ನು ಅನುಸರಿಸಿ, ಕೆಳಗೆ ಇರಿ',hi:'सीढ़ी तक फायर निकास संकेतों का पालन करें, नीचे रहें', correct:true, badge:{en:'Correct',kn:'ಸರಿಯಾದ',hi:'सही'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Go back to the shop to collect your belongings',kn:'ನಿಮ್ಮ ವಸ್ತುಗಳನ್ನು ತೆಗೆದುಕೊಳ್ಳಲು ಅಂಗಡಿಗೆ ಹಿಂತಿರುಗಿ',hi:'अपना सामान उठाने के लिए दुकान वापस जाएं', correct:false, badge:{en:'Harmful',kn:'ಹಾನಿಕಾರಕ',hi:'हानिकारक'}, badgeC:'#dc2626', badgeBg:'#fee2e2'},
+        {en:'Alert others near you calmly before leaving',kn:'ಹೊರಡುವ ಮೊದಲು ನಿಮ್ಮ ಬಳಿ ಇದ್ದವರನ್ನು ಶಾಂತವಾಗಿ ಎಚ್ಚರಿಸಿ',hi:'जाने से पहले पास के लोगों को शांति से सतर्क करें', correct:true, badge:{en:'Helpful',kn:'ಸಹಾಯಕ',hi:'सहायक'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+      ],
+      fb:{
+        correct:{en:'Never use elevators during a fire — power may cut and you will be trapped. Follow illuminated fire exit signs, stay low to avoid smoke, and alert others calmly.',kn:'ಬೆಂಕಿ ಸಮಯದಲ್ಲಿ ಎಂದಿಗೂ ಎಲಿವೇಟರ್ ಬಳಸಬೇಡಿ. ಬೆಂಕಿ ನಿರ್ಗಮನ ಚಿಹ್ನೆಗಳನ್ನು ಅನುಸರಿಸಿ.',hi:'आग के दौरान कभी भी लिफ्ट का उपयोग न करें। रोशनी वाले अग्नि निकास संकेतों का पालन करें।'},
+        incorrect:{en:'Elevators can trap you if power fails. Never return for belongings — property can be replaced, lives cannot.',kn:'ವಿದ್ಯುತ್ ವಿಫಲವಾದರೆ ಲಿಫ್ಟ್‌ಗಳು ನಿಮ್ಮನ್ನು ತಡೆಯಬಹುದು.',hi:'बिजली बंद होने पर लिफ्ट आपको फंसा सकती है। सामान के लिए वापस कभी न जाएं।'},
+      }
+    },
+    {
+      illus:'👶', bg:'#f5f3ff', tagColor:'#5b21b6', tagBg:'#ede9fe',
+      tag:{en:'Child Safety',kn:'ಮಕ್ಕಳ ಸುರಕ್ಷತೆ',hi:'बच्चों की सुरक्षा'},
+      q:{en:'You are in a crowded mall with a young child. How do you best prepare before entering?',kn:'ಚಿಕ್ಕ ಮಗುವಿನೊಂದಿಗೆ ತುಂಬಿದ ಮಾಲ್‌ನಲ್ಲಿದ್ದೀರಿ. ಪ್ರವೇಶಿಸುವ ಮೊದಲು ಉತ್ತಮ ತಯಾರಿ ಹೇಗೆ?',hi:'एक छोटे बच्चे के साथ भीड़ भरे मॉल में हैं। प्रवेश से पहले कैसे तैयारी करें?'},
+      ctx:{en:'Weekend rush. Mall has 3 floors and multiple exits.',kn:'ವಾರಾಂತ್ಯದ ಭೀಡ. ಮಾಲ್‌ಗೆ 3 ಮಹಡಿಗಳು ಮತ್ತು ಅನೇಕ ನಿರ್ಗಮನಗಳಿವೆ.',hi:'वीकेंड की भीड़। मॉल में 3 मंजिल और कई निकास हैं।'},
+      opts:[
+        {en:'Write your phone number on the child\'s wrist or put an ID tag',kn:'ಮಗುವಿನ ಮಣಿಕಟ್ಟಿನ ಮೇಲೆ ಫೋನ್ ಸಂಖ್ಯೆ ಬರೆಯಿರಿ ಅಥವಾ ಐಡಿ ಟ್ಯಾಗ್ ಹಾಕಿ',hi:'बच्चे की कलाई पर फोन नंबर लिखें या आईडी टैग लगाएं', correct:true, badge:{en:'Essential',kn:'ಅಗತ್ಯ',hi:'आवश्यक'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+        {en:'Tell the child to stand still if lost',kn:'ಕಳೆದುಹೋದರೆ ಮಗು ಸ್ಥಿರವಾಗಿ ನಿಲ್ಲಲು ಹೇಳಿ',hi:'खो जाने पर बच्चे को एक जगह खड़े रहने को कहें', correct:true, badge:{en:'Smart',kn:'ಜಾಣ',hi:'समझदार'}, badgeC:'#2563eb', badgeBg:'#dbeafe'},
+        {en:'Carry the child throughout the entire visit',kn:'ಇಡೀ ಭೇಟಿಯ ಉದ್ದಕ್ಕೂ ಮಗುವನ್ನು ಎತ್ತಿಕೊಳ್ಳಿ',hi:'पूरी यात्रा के दौरान बच्चे को गोद में उठाए रखें', correct:false, badge:{en:'Impractical',kn:'ಅಪ್ರಾಯೋಗಿಕ',hi:'अव्यावहारिक'}, badgeC:'#d97706', badgeBg:'#fef3c7'},
+        {en:'Agree on a clear landmark to meet if separated',kn:'ಬೇರ್ಪಟ್ಟರೆ ಭೇಟಿಯಾಗಲು ಸ್ಪಷ್ಟ ಹೆಗ್ಗುರುತಿನ ಮೇಲೆ ಒಪ್ಪಿಕೊಳ್ಳಿ',hi:'अलग होने पर मिलने के लिए एक स्पष्ट स्थान पर सहमत हों', correct:true, badge:{en:'Prepared',kn:'ಸಿದ್ಧ',hi:'तैयार'}, badgeC:'#16a34a', badgeBg:'#dcfce7'},
+      ],
+      fb:{
+        correct:{en:'ID tagging, teaching the child to stay put, and agreeing on a landmark are all lifesaving practices.',kn:'ಐಡಿ ಟ್ಯಾಗಿಂಗ್, ಮಗುವಿಗೆ ಸ್ಥಿರವಾಗಿ ಇರಲು ಕಲಿಸುವುದು ಮತ್ತು ಹೆಗ್ಗುರುತಿನ ಮೇಲೆ ಒಪ್ಪಿಕೊಳ್ಳುವುದು ಜೀವ ಉಳಿಸುವ ಅಭ್ಯಾಸಗಳು.',hi:'आईडी टैगिंग, बच्चे को जगह पर रहना सिखाना और एक स्थान पर सहमत होना सभी जीवनरक्षक प्रथाएं हैं।'},
+        incorrect:{en:'Carrying a child throughout is exhausting and not always possible. A clear action plan (ID + meeting point) is far more reliable.',kn:'ಮಗುವನ್ನು ಸದಾ ಎತ್ತಿಕೊಳ್ಳುವುದು ದಣಿವಿನ ಸಂಗತಿ ಮತ್ತು ಯಾವಾಗಲೂ ಸಾಧ್ಯವಿಲ್ಲ.',hi:'पूरी यात्रा में बच्चे को उठाए रखना थका देने वाला और हमेशा संभव नहीं है।'},
+      }
+    }
+  ]
+};
+
+const SAFETY_TIPS = [
+  { icon:'👟', title:{en:'Move with flow',kn:'ಹರಿವಿನೊಂದಿಗೆ ಚಲಿಸಿ',hi:'प्रवाह के साथ चलें'}, body:{en:'Always move in the direction the crowd is flowing. Trying to move against it exponentially increases the pressure on everyone.',kn:'ಯಾವಾಗಲೂ ಜನಸಮೂಹ ಹರಿಯುವ ದಿಕ್ಕಿನಲ್ಲಿ ಚಲಿಸಿ.',hi:'हमेशा भीड़ के बहाव की दिशा में चलें।'}, tag:{en:'Movement',kn:'ಚಲನೆ',hi:'गतिविधि'}, tagC:'#2563eb', tagBg:'#dbeafe' },
+  { icon:'📍', title:{en:'Scout exits first',kn:'ಮೊದಲು ನಿರ್ಗಮನಗಳನ್ನು ಹುಡುಕಿ',hi:'पहले निकास ढूंढें'}, body:{en:'On entering any public space, immediately locate all emergency exits. This mental map can save precious seconds in an emergency.',kn:'ಯಾವುದೇ ಸಾರ್ವಜನಿಕ ಸ್ಥಳ ಪ್ರವೇಶಿಸಿದಾಗ, ತಕ್ಷಣ ಎಲ್ಲಾ ತುರ್ತು ನಿರ್ಗಮನಗಳನ್ನು ಗುರುತಿಸಿ.',hi:'किसी भी सार्वजनिक स्थान में प्रवेश करते समय तुरंत सभी आपातकालीन निकास ढूंढें।'}, tag:{en:'Preparedness',kn:'ಸಿದ್ಧತೆ',hi:'तैयारी'}, tagC:'#7c3aed', tagBg:'#ede9fe' },
+  { icon:'🧘', title:{en:'Stay calm',kn:'ಶಾಂತವಾಗಿರಿ',hi:'शांत रहें'}, body:{en:'Panic spreads faster than any physical danger. Slow, steady breathing keeps your mind clear and prevents contributing to crowd hysteria.',kn:'ಭಯ ಯಾವುದೇ ಭೌತಿಕ ಅಪಾಯಕ್ಕಿಂತ ವೇಗವಾಗಿ ಹರಡುತ್ತದೆ.',hi:'घबराहट किसी भी शारीरिक खतरे से तेज़ फैलती है।'}, tag:{en:'Mental',kn:'ಮಾನಸಿಕ',hi:'मानसिक'}, tagC:'#0891b2', tagBg:'#ecfeff' },
+  { icon:'📞', title:{en:'Emergency contacts',kn:'ತುರ್ತು ಸಂಪರ್ಕಗಳು',hi:'आपातकालीन संपर्क'}, body:{en:'Save Police (100), Ambulance (108), and Fire (101) on your phone. Keep your phone charged to at least 30% when visiting crowded places.',kn:'ಪೊಲೀಸ್ (100), ಆಂಬ್ಯುಲೆನ್ಸ್ (108), ಮತ್ತು ಅಗ್ನಿ (101) ಉಳಿಸಿ.',hi:'पुलिस (100), एम्बुलेंस (108), और अग्निशमन (101) सेव करें।'}, tag:{en:'Emergency',kn:'ತುರ್ತು',hi:'आपातकाल'}, tagC:'#dc2626', tagBg:'#fee2e2' },
+  { icon:'🏃', title:{en:'Diagonal escape',kn:'ಓರೆ ತಪ್ಪಿಸಿಕೊಳ್ಳುವಿಕೆ',hi:'तिरछा बचाव'}, body:{en:'If caught in dangerous crowd pressure, move diagonally toward the edge — never directly forward or backward. Diagonal movement faces less resistance.',kn:'ಅಪಾಯಕಾರಿ ಜನಸಮೂಹ ಒತ್ತಡದಲ್ಲಿ ಸಿಕ್ಕಿಕೊಂಡರೆ, ಅಂಚಿಗೆ ಓರೆಯಾಗಿ ಚಲಿಸಿ.',hi:'खतरनाक भीड़ के दबाव में फंसने पर किनारे की ओर तिरछे चलें।'}, tag:{en:'Technique',kn:'ತಂತ್ರ',hi:'तकनीक'}, tagC:'#d97706', tagBg:'#fef3c7' },
+  { icon:'👐', title:{en:'Arms up technique',kn:'ತೋಳುಗಳನ್ನು ಮೇಲಕ್ಕೆ ತಂತ್ರ',hi:'बाहें ऊपर तकनीक'}, body:{en:'In a crush, raise your arms in front of your chest like a boxer. This creates a pocket of air and reduces the compression force on your lungs.',kn:'ಕ್ರಶ್‌ನಲ್ಲಿ, ಬಾಕ್ಸರ್‌ನಂತೆ ಎದೆಯ ಮುಂದೆ ತೋಳುಗಳನ್ನು ಮೇಲಕ್ಕೆ ಎತ್ತಿ.',hi:'क्रश में, मुक्केबाज की तरह छाती के सामने बाहें उठाएं।'}, tag:{en:'Life-saving',kn:'ಜೀವ-ರಕ್ಷಕ',hi:'जीवनरक्षक'}, tagC:'#dc2626', tagBg:'#fee2e2' },
+];
+
+const BADGES_DATA = [
+  { id:'first_step',   icon:'👣', name:{en:'First Step',kn:'ಮೊದಲ ಹೆಜ್ಜೆ',hi:'पहला कदम'},   desc:{en:'Complete 1 scenario',kn:'1 ಸನ್ನಿವೇಶ ಪೂರ್ಣ',hi:'1 परिदृश्य पूरा करें'}, color:'#0891b2', bg:'#ecfeff',  condition: s => s.totalDone >= 1 },
+  { id:'temple_pro',   icon:'🛕', name:{en:'Temple Guard',kn:'ದೇವಾಲಯ ರಕ್ಷಕ',hi:'मंदिर रक्षक'}, desc:{en:'Master temple safety',kn:'ದೇವಾಲಯ ಸುರಕ್ಷತೆ ಮಾಸ್ಟರ್',hi:'मंदिर सुरक्षा में निपुण'}, color:'#d97706', bg:'#fef3c7', condition: s => (s.envDone.temple||0) >= SCENARIOS.temple.length },
+  { id:'rail_ranger',  icon:'🚉', name:{en:'Rail Ranger',kn:'ರೈಲ್ ರೇಂಜರ್',hi:'रेल रेंजर'},   desc:{en:'Master railway safety',kn:'ರೈಲ್ವೆ ಸುರಕ್ಷತೆ ಮಾಸ್ಟರ್',hi:'रेलवे सुरक्षा में निपुण'}, color:'#2563eb', bg:'#dbeafe', condition: s => (s.envDone.railway||0) >= SCENARIOS.railway.length },
+  { id:'streak3',      icon:'🔥', name:{en:'On Fire',kn:'ಉರಿಯುತ್ತಿದೆ',hi:'आग पर'},           desc:{en:'3 correct in a row',kn:'ಸತತ 3 ಸರಿ',hi:'लगातार 3 सही'},  color:'#dc2626', bg:'#fee2e2', condition: s => s.streak >= 3 },
+  { id:'polyglot',     icon:'🌐', name:{en:'Polyglot',kn:'ಬಹುಭಾಷಿ',hi:'बहुभाषी'},             desc:{en:'Try all 3 languages',kn:'3 ಭಾಷೆಗಳನ್ನು ಪ್ರಯತ್ನಿಸಿ',hi:'तीनों भाषाएं आज़माएं'}, color:'#7c3aed', bg:'#ede9fe',  condition: s => s.langsTried && s.langsTried.size >= 3 },
+  { id:'champion',     icon:'🏆', name:{en:'Champion',kn:'ಚಾಂಪಿಯನ್',hi:'चैंपियन'},             desc:{en:'90%+ accuracy',kn:'90%+ ನಿಖರತೆ',hi:'90%+ सटीकता'}, color:'#16a34a', bg:'#dcfce7', condition: s => s.totalDone >= 5 && (s.totalCorrect/s.totalDone) >= 0.9 },
+];
+
+/* ── State ── */
+let learnState = {
+  lang: 'en',
+  activeEnv: null,
+  scenIdx: 0,
+  answered: false,
+  totalDone: 0,
+  totalCorrect: 0,
+  streak: 0,
+  envDone: {},
+  scenResults: {},
+  langsTried: new Set(['en']),
+};
+
+/* ── Init ── */
+function initLearn() {
+  renderEnvGrid();
+  renderTips();
+  renderBadges();
+  updateStats();
+}
+
+function setLang(l, btn) {
+  learnState.lang = l;
+  learnState.langsTried.add(l);
+  document.querySelectorAll('.lrn-lang-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  // Re-render everything
+  renderEnvGrid();
+  renderTips();
+  renderBadges();
+  document.getElementById('env-title').textContent = LEARN_LANG[l].envTitle;
+  document.getElementById('tips-title').textContent = LEARN_LANG[l].tipsTitle;
+  if (learnState.activeEnv) renderScenario();
+  checkBadges();
+}
+
+function renderEnvGrid() {
+  const l = learnState.lang;
+  document.getElementById('envGrid').innerHTML = ENVIRONMENTS.map(e => `
+    <div class="lrn-env-card ${learnState.activeEnv===e.id?'active':''}" onclick="selectEnv('${e.id}')">
+      <div class="lrn-env-icon">${e.icon}</div>
+      <div class="env-label">${e.label[l]}</div>
+      <div class="env-sub">${e.sub[l]}</div>
+      ${(learnState.envDone[e.id]||0) >= SCENARIOS[e.id].length ?
+        `<div style="font-size:10px;background:#dcfce7;color:#16a34a;border-radius:10px;padding:2px 8px;font-weight:700">✓ Done</div>` : ''}
+    </div>
+  `).join('');
+}
+
+function selectEnv(envId) {
+  learnState.activeEnv = envId;
+  learnState.scenIdx = 0;
+  learnState.answered = false;
+  renderEnvGrid();
+  document.getElementById('scenarioSection').style.display = 'block';
+  document.getElementById('scenarioSection').scrollIntoView({behavior:'smooth', block:'nearest'});
+  renderScenario();
+}
+
+function renderScenario() {
+  const l   = learnState.lang;
+  const env = ENVIRONMENTS.find(e => e.id === learnState.activeEnv);
+  const scenes = SCENARIOS[learnState.activeEnv];
+  const s   = scenes[learnState.scenIdx];
+  const lang = LEARN_LANG[l];
+
+  // Header
+  document.getElementById('scene-env-badge').textContent = env.icon;
+  document.getElementById('scene-env-name').textContent  = env.label[l];
+  document.getElementById('scene-num').textContent       = lang.scenNum(learnState.scenIdx+1, scenes.length);
+
+  // Dots
+  document.getElementById('sceneDots').innerHTML = scenes.map((_,i) => {
+    const key = `${learnState.activeEnv}-${i}`;
+    const res = learnState.scenResults[key];
+    let cls = i === learnState.scenIdx ? 'active' : res === true ? 'done' : res === false ? 'wrong' : '';
+    return `<div class="lrn-dot ${cls}"></div>`;
+  }).join('');
+
+  // Illustration
+  const illusEl = document.getElementById('scene-illus');
+  illusEl.textContent = s.illus;
+  illusEl.style.background = s.bg;
+
+  // Tag
+  const tagEl = document.getElementById('scene-tag');
+  tagEl.textContent = s.tag[l];
+  tagEl.style.color = s.tagColor;
+  tagEl.style.background = s.tagBg;
+
+  document.getElementById('scene-q').textContent   = s.q[l];
+  document.getElementById('scene-ctx').textContent = s.ctx[l];
+
+  // Options
+  const keys = ['A','B','C','D'];
+  document.getElementById('sceneOpts').innerHTML = s.opts.map((o,i) => `
+    <div class="lrn-opt" id="opt-${i}" onclick="answerScenario(${i})">
+      <div class="lrn-opt-key">${keys[i]}</div>
+      <div class="lrn-opt-text">${o[l]}</div>
+    </div>
+  `).join('');
+
+  // Feedback & next btn
+  document.getElementById('sceneFeedback').style.display = 'none';
+  document.getElementById('nextBtn').style.display = 'none';
+  document.getElementById('nextBtn').textContent =
+    learnState.scenIdx < scenes.length - 1 ? lang.next : lang.finish;
+  learnState.answered = false;
+}
+
+function answerScenario(idx) {
+  if (learnState.answered) return;
+  learnState.answered = true;
+
+  const l = learnState.lang;
+  const s = SCENARIOS[learnState.activeEnv][learnState.scenIdx];
+  const opt = s.opts[idx];
+  const isCorrect = opt.correct;
+  const lang = LEARN_LANG[l];
+  const key = `${learnState.activeEnv}-${learnState.scenIdx}`;
+
+  // Record result
+  learnState.scenResults[key] = isCorrect;
+  learnState.totalDone++;
+  if (isCorrect) {
+    learnState.totalCorrect++;
+    learnState.streak++;
+    learnState.envDone[learnState.activeEnv] = (learnState.envDone[learnState.activeEnv]||0) + 1;
+  } else {
+    learnState.streak = 0;
+  }
+
+  // Style options
+  s.opts.forEach((_,i) => {
+    const el = document.getElementById(`opt-${i}`);
+    if (s.opts[i].correct) el.classList.add('correct');
+    else if (i === idx && !isCorrect) el.classList.add('incorrect');
+    else el.classList.add('dimmed');
+  });
+
+  // Feedback
+  const fb = document.getElementById('sceneFeedback');
+  fb.className = `lrn-feedback ${isCorrect?'correct':'incorrect'}`;
+  fb.style.display = 'block';
+  document.getElementById('fb-title').textContent = isCorrect ? lang.correct : lang.incorrect;
+  document.getElementById('fb-body').textContent  = isCorrect ? s.fb.correct[l] : s.fb.incorrect[l];
+
+  // Next button
+  document.getElementById('nextBtn').style.display = 'inline-block';
+
+  // Dots
+  document.getElementById('sceneDots').innerHTML = SCENARIOS[learnState.activeEnv].map((_,i) => {
+    const k = `${learnState.activeEnv}-${i}`;
+    const res = learnState.scenResults[k];
+    let cls = i === learnState.scenIdx ? (isCorrect?'done':'wrong') : res===true?'done':res===false?'wrong':'';
+    return `<div class="lrn-dot ${cls}"></div>`;
+  }).join('');
+
+  updateStats();
+  checkBadges();
+  renderEnvGrid();
+}
+
+function nextScenario() {
+  const scenes = SCENARIOS[learnState.activeEnv];
+  if (learnState.scenIdx < scenes.length - 1) {
+    learnState.scenIdx++;
+    renderScenario();
+  } else {
+    // Finished this environment
+    document.getElementById('scenarioSection').style.display = 'none';
+    // Check if all done
+    const allTotal = Object.values(SCENARIOS).reduce((a,s)=>a+s.length,0);
+    if (learnState.totalDone >= allTotal) showCert();
+  }
+}
+
+function showCert() {
+  const pct = Math.round(learnState.totalCorrect / learnState.totalDone * 100);
+  document.getElementById('cert-score').textContent = pct + '%';
+  document.getElementById('certPanel').style.display = 'block';
+  document.getElementById('certPanel').scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+function resetLearn() {
+  learnState = {
+    lang: learnState.lang,
+    activeEnv: null,
+    scenIdx: 0,
+    answered: false,
+    totalDone: 0,
+    totalCorrect: 0,
+    streak: 0,
+    envDone: {},
+    scenResults: {},
+    langsTried: new Set([learnState.lang]),
+  };
+  document.getElementById('certPanel').style.display = 'none';
+  document.getElementById('scenarioSection').style.display = 'none';
+  renderEnvGrid();
+  updateStats();
+  renderBadges();
+}
+
+function updateStats() {
+  const done = learnState.totalDone;
+  const pct  = done > 0 ? Math.round(learnState.totalCorrect/done*100) : 0;
+  const total = Object.values(SCENARIOS).reduce((a,s)=>a+s.length,0);
+  const l = learnState.lang;
+
+  document.getElementById('stat-done').textContent   = done;
+  document.getElementById('stat-score').textContent  = pct + '%';
+  document.getElementById('stat-streak').textContent = learnState.streak;
+  document.getElementById('prog-pct').textContent    = LEARN_LANG[l].progPct(done, total);
+  document.getElementById('lrn-prog-bar').style.width = (done/total*100) + '%';
+
+  const earnedBadges = BADGES_DATA.filter(b => b.condition(learnState)).length;
+  document.getElementById('stat-badges').textContent = earnedBadges;
+}
+
+function renderTips() {
+  const l = learnState.lang;
+  document.getElementById('tipsGrid').innerHTML = SAFETY_TIPS.map(t => `
+    <div class="lrn-tip-card">
+      <div class="lrn-tip-icon">${t.icon}</div>
+      <div class="lrn-tip-title">${t.title[l]}</div>
+      <div class="lrn-tip-body">${t.body[l]}</div>
+      <span class="lrn-tip-tag" style="background:${t.tagBg};color:${t.tagC}">${t.tag[l]}</span>
+    </div>
+  `).join('');
+}
+
+function renderBadges() {
+  const l = learnState.lang;
+  document.getElementById('badgesGrid').innerHTML = BADGES_DATA.map(b => {
+    const earned = b.condition(learnState);
+    return `
+      <div class="lrn-badge ${earned?'':'locked'}" style="border-color:${b.color};background:${earned?b.bg:'#f8fafc'}">
+        <div class="lrn-badge-icon">${b.icon}</div>
+        <div class="badge-name" style="color:${b.color}">${b.name[l]}</div>
+        <div class="badge-desc">${b.desc[l]}</div>
+      </div>`;
+  }).join('');
+}
+
+function checkBadges() {
+  renderBadges();
+}
+
+// Patch learn tab init into the existing switchTab
+(function() {
+  const _orig = switchTab;
+  switchTab = function(name, el) {
+    _orig(name, el);
+    if (name === 'learn' && !learnState._initialized) {
+      initLearn();
+      learnState._initialized = true;
+    }
+  };
+})();
+</script>
+</body>
+</html>
